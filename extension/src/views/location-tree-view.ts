@@ -261,13 +261,13 @@ class ModItem extends vscode.TreeItem {
         this.description = this.text;
         if (isRefactor && refactorEdits) {
             this.command = {
-                command: 'coEdPilot.openRefactorPreview',
+                command: 'navEdit.openRefactorPreview',
                 title: 'Open Refactor View',
                 arguments: [refactorEdits]
             };
         } else {
             this.command = {
-                command: 'coEdPilot.openFileAtLine',
+                command: 'navEdit.openFileAtLine',
                 title: '',
                 arguments: [
                     this.fileItem.filePath,

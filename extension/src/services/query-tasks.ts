@@ -159,8 +159,8 @@ class PredictLocationCommand extends DisposableComponent {
 	constructor() {
 		super();
 		this.register(
-            vscode.commands.registerCommand("coEdPilot.predictLocations", predictLocationByNavEdit),
-            vscode.commands.registerCommand("coEdPilot.clearLocations", async () => {
+            vscode.commands.registerCommand("navEdit.predictLocations", predictLocationByNavEdit),
+            vscode.commands.registerCommand("navEdit.clearLocations", async () => {
                 globalQueryContext.clearResults();
             })
 		);
@@ -172,7 +172,7 @@ class GenerateEditCommand extends DisposableComponent {
 		super();
         this.register(
             this.registerEditSelectionCommands(),
-            vscode.commands.registerCommand("coEdPilot.generateEdits", predictEdit)
+            vscode.commands.registerCommand("navEdit.generateEdits", predictEdit)
 		);
     }
     
@@ -212,18 +212,18 @@ class GenerateEditCommand extends DisposableComponent {
             }
         }
         return vscode.Disposable.from(
-            vscode.commands.registerCommand("coEdPilot.lastSuggestion", async () => {
+            vscode.commands.registerCommand("navEdit.lastSuggestion", async () => {
                 await switchEdit(-1);
             }),
-            vscode.commands.registerCommand("coEdPilot.nextSuggestion", async () => {
+            vscode.commands.registerCommand("navEdit.nextSuggestion", async () => {
                 await switchEdit(1);
             }),
-            vscode.commands.registerCommand("coEdPilot.acceptEdit", async () => {
+            vscode.commands.registerCommand("navEdit.acceptEdit", async () => {
                 globalEditorState.toPredictLocation = true;
                 await acceptEdit();
                 await closeTab();
             }),
-            vscode.commands.registerCommand("coEdPilot.dismissEdit", async () => {
+            vscode.commands.registerCommand("navEdit.dismissEdit", async () => {
                 await clearEdit();
                 await closeTab();
             })

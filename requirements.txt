@@ -9,3 +9,6 @@ bleu
 pandas
 waitress
 jsonlines
+rank_bm25
+tree-sitter==0.20.4
+rapidfuzz

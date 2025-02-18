@@ -45,7 +45,7 @@ class ModelServerProcess extends DisposableComponent {
 
         this.register(
             vscode.workspace.onDidChangeConfiguration((e) => {
-                if (e.affectsConfiguration("coEdPilot.queryURL")) {
+                if (e.affectsConfiguration("navEdit.queryURL")) {
                     this.apiUrl = this.getApiUrl();
                 }
             })
@@ -53,7 +53,7 @@ class ModelServerProcess extends DisposableComponent {
     }
 
     getApiUrl() {
-        const apiUrlConfigValue = vscode.workspace.getConfiguration("coEdPilot").get("queryURL");
+        const apiUrlConfigValue = vscode.workspace.getConfiguration("navEdit").get("queryURL");
         const apiUrl = typeof(apiUrlConfigValue) === 'string' ? apiUrlConfigValue : "http://localhost:5000";
         return apiUrl;
     }

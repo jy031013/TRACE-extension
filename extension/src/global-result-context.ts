@@ -237,7 +237,7 @@ class QueryContext extends DisposableComponent {
     constructor() {
         super();
         this.register(
-            vscode.commands.registerCommand('coEdPilot.inputMessage', () => {
+            vscode.commands.registerCommand('navEdit.inputMessage', () => {
                 this.querySettings.inputCommitMessage();
             })
         );

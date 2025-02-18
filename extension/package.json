@@ -1,6 +1,6 @@
 {
-  "name": "co-ed-pilot",
-  "displayName": "CoEdPilot",
+  "name": "navedit",
+  "displayName": "NavEdit",
   "description": "A code co-edit helper.",
   "version": "0.1.0",
   "publisher": "Code Philia",
@@ -21,14 +21,14 @@
   "contributes": {
     "configuration": [
       {
-        "title": "CoEdPilot",
+        "title": "NavEdit",
         "properties": {
-          "coEdPilot.queryURL": {
+          "navEdit.queryURL": {
             "type": "string",
             "default": "http://localhost:5003",
             "description": "The backend URL to send query request to."
           },
-          "coEdPilot.predictLocationOnEditAcception": {
+          "navEdit.predictLocationOnEditAcception": {
             "type": "boolean",
             "default": "true",
             "description": "Perform another prediction immediately when accpeting an edit."
@@ -38,115 +38,115 @@
     ],
     "commands": [
       {
-        "command": "coEdPilot.inputMessage",
-        "category": "CoEdPilot",
+        "command": "navEdit.inputMessage",
+        "category": "NavEdit",
         "title": "Change Edit Description",
         "icon": "$(comment)"
       },
       {
         "title": "Last Suggestion",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.lastSuggestion",
+        "category": "NavEdit",
+        "command": "navEdit.lastSuggestion",
         "icon": "$(arrow-left)"
       },
       {
         "title": "Next Suggestion",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.nextSuggestion",
+        "category": "NavEdit",
+        "command": "navEdit.nextSuggestion",
         "icon": "$(arrow-right)"
       },
       {
         "title": "Accept",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.acceptEdit",
+        "category": "NavEdit",
+        "command": "navEdit.acceptEdit",
         "icon": "$(pass)"
       },
       {
         "title": "Dismiss",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.dismissEdit",
+        "category": "NavEdit",
+        "command": "navEdit.dismissEdit",
         "icon": "$(trash)"
       },
       {
         "title": "Predict Locations",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.predictLocations",
+        "category": "NavEdit",
+        "command": "navEdit.predictLocations",
         "icon": "$(list-tree)"
       },
       {
         "title": "Generate Edits",
-        "category": "CoEdPilot",
-        "command": "coEdPilot.generateEdits",
+        "category": "NavEdit",
+        "command": "navEdit.generateEdits",
         "icon": "$(edit)"
       },
       {
         "title": "Show Commands",
-        "command": "coEdPilot.showCommands"
+        "command": "navEdit.showCommands"
       },
       {
         "title": "Clear Locations",
-        "command": "coEdPilot.clearLocations",
+        "command": "navEdit.clearLocations",
         "icon": "$(close)"
       },
       {
         "title": "Clear Edit Memory",
-        "command": "coEdPilot.clearPrevEdits",
+        "command": "navEdit.clearPrevEdits",
         "icon": "$(history)"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "coEdPilot.inputMessage",
-          "group": "0_coEdPilot@3",
+          "command": "navEdit.inputMessage",
+          "group": "0_navEdit@3",
           "when": "editorFocus"
         },
         {
-          "command": "coEdPilot.predictLocations",
-          "group": "0_coEdPilot@1",
+          "command": "navEdit.predictLocations",
+          "group": "0_navEdit@1",
           "when": "editorFocus"
         },
         {
-          "command": "coEdPilot.generateEdits",
-          "group": "0_coEdPilot@2",
-          "when": "editorFocus && coEdPilot:isLanguageSupported"
+          "command": "navEdit.generateEdits",
+          "group": "0_navEdit@2",
+          "when": "editorFocus && navEdit:isLanguageSupported"
         }
       ],
       "editor/title": [
         {
-          "command": "coEdPilot.lastSuggestion",
+          "command": "navEdit.lastSuggestion",
           "group": "navigation@-4",
-          "when": "coEdPilot:isEditDiff"
+          "when": "navEdit:isEditDiff"
         },
         {
-          "command": "coEdPilot.nextSuggestion",
+          "command": "navEdit.nextSuggestion",
           "group": "navigation@-3",
-          "when": "coEdPilot:isEditDiff"
+          "when": "navEdit:isEditDiff"
         },
         {
-          "command": "coEdPilot.acceptEdit",
+          "command": "navEdit.acceptEdit",
           "group": "navigation@-2",
-          "when": "coEdPilot:isEditDiff"
+          "when": "navEdit:isEditDiff"
         },
         {
-          "command": "coEdPilot.dismissEdit",
+          "command": "navEdit.dismissEdit",
           "group": "navigation@-1",
-          "when": "coEdPilot:isEditDiff"
+          "when": "navEdit:isEditDiff"
         },
         {
-          "command": "coEdPilot.inputMessage",
+          "command": "navEdit.inputMessage",
           "group": "navigation@-97",
-          "when": "(!(coEdPilot:isEditDiff)) && coEdPilot:isLanguageSupported"
+          "when": "(!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
         },
         {
-          "command": "coEdPilot.clearPrevEdits",
+          "command": "navEdit.clearPrevEdits",
           "group": "navigation@-96",
-          "when": "(!(coEdPilot:isEditDiff)) && coEdPilot:isLanguageSupported"
+          "when": "(!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
         }
       ],
       "view/title": [
         {
-          "command": "coEdPilot.clearLocations",
+          "command": "navEdit.clearLocations",
           "when": "view == editLocations",
           "group": "navigation"
         }
@@ -155,14 +155,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "coEdPilot",
+          "id": "navEdit",
           "title": "NavEdit",
           "icon": "$(edit)"
         }
       ]
     },
     "views": {
-      "coEdPilot": [
+      "navEdit": [
         {
           "id": "editLocations",
           "name": "Suggested Edit Locations"
@@ -175,12 +175,12 @@
     },
     "keybindings": [
       {
-        "command": "coEdPilot.predictLocations",
+        "command": "navEdit.predictLocations",
         "key": "ctrl+alt+l",
         "mac": "cmd+alt+l"
       },
       {
-        "command": "coEdPilot.generateEdits",
+        "command": "navEdit.generateEdits",
         "key": "ctrl+alt+e",
         "mac": "cmd+alt+e",
         "when": "editorFocus"
@@ -201,7 +201,7 @@
     "@vscode/test-cli": "^0.0.4",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^8.57.0",
-    "typescript": "^5.5.3"
+    "typescript": "^5.7.3"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -216,6 +216,7 @@
     "tree-sitter-javascript": "^0.21.4",
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.21.2",
+    "ts-node": "^10.9.2",
     "vscode-languageserver": "^8.1.0"
   }
 }

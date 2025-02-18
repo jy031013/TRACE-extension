@@ -8,7 +8,7 @@ import { createVirtualModifiedFileUri } from "./views/compare-view";
 
 export function registerBasicCommands() {
 	return vscode.Disposable.from(
-		vscode.commands.registerCommand('coEdPilot.openFileAtLine', async (filePath, fromLine, toLine) => {
+		vscode.commands.registerCommand('navEdit.openFileAtLine', async (filePath, fromLine, toLine) => {
 			const uri = vscode.Uri.file(filePath); // Replace with dynamic file path
 
 			const document = await vscode.workspace.openTextDocument(uri);
@@ -25,12 +25,12 @@ export function registerBasicCommands() {
 			editor.selection = new vscode.Selection(range.start, range.end);
 			editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 		}),
-		vscode.commands.registerCommand('coEdPilot.clearPrevEdits', async () => {
+		vscode.commands.registerCommand('navEdit.clearPrevEdits', async () => {
 			globalEditDetector.clearEditsAndSnapshots();
 			await vscode.window.showInformationMessage("Previous edits cleared!");
 			// addUserStatItem("clearPrevEdits");
 		}),
-		vscode.commands.registerCommand('coEdPilot.openRefactorPreview', openRefactorPreview)
+		vscode.commands.registerCommand('navEdit.openRefactorPreview', openRefactorPreview)
 	);
 }
 

@@ -10,14 +10,14 @@ class ProgressDisplayStatusBarItem extends DisposableComponent {
     constructor() {
         super();
         this.loadingIconId = "loading~spin";
-        this.item = vscode.window.createStatusBarItem('coEdPilot.progressDisplay', vscode.StatusBarAlignment.Right, 1000);
+        this.item = vscode.window.createStatusBarItem('navEdit.progressDisplay', vscode.StatusBarAlignment.Right, 1000);
         this.setStatusDefault();
         this.item.show();
-        this.item.command = "coEdPilot.showCommands";
+        this.item.command = "navEdit.showCommands";
         this.busy = false;
 
         this.register(
-            vscode.commands.registerCommand("coEdPilot.showCommands", () => {
+            vscode.commands.registerCommand("navEdit.showCommands", () => {
                 // TODO showing a command context menu, to be implemented
             })
         );

@@ -321,12 +321,12 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
 
     console.log(`toPredictLocation: ${globalEditorState.toPredictLocation}`);
     console.log(`length: ${globalQueryContext.getLocations()?.length}`);
-    if (vscode.workspace.getConfiguration("coEdPilot").get("predictLocationOnEditAcception") && globalEditorState.toPredictLocation && !(globalQueryContext.getLocations()?.length)) {
-        vscode.commands.executeCommand("coEdPilot.predictLocations");
+    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAcception") && globalEditorState.toPredictLocation && !(globalQueryContext.getLocations()?.length)) {
+        vscode.commands.executeCommand("navEdit.predictLocations");
         globalEditorState.toPredictLocation = false;
     }
-    vscode.commands.executeCommand('setContext', 'coEdPilot:isEditDiff', isEditDiff);
-    vscode.commands.executeCommand('setContext', 'coEdPilot:isLanguageSupported', globalEditorState.isActiveEditorLanguageSupported());
+    vscode.commands.executeCommand('setContext', 'navEdit:isEditDiff', isEditDiff);
+    vscode.commands.executeCommand('setContext', 'navEdit:isLanguageSupported', globalEditorState.isActiveEditorLanguageSupported());
 }
 
 export class FileStateMonitor extends DisposableComponent {
