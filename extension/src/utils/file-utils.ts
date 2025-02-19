@@ -134,7 +134,7 @@ function getRootPath() {
     return toPosixPath(workspacePath);
 }
 
-async function readGlobFiles(useSnapshot = true) {
+async function readFilesDefaultCollected(useSnapshot = true) {
     const rootPath = getRootPath();
 
     // Use glob to exclude certain files and return a list of all valid files
@@ -323,7 +323,7 @@ export {
     globFiles,
     replaceCurrentSnapshot,
     getRootPath,
-    readGlobFiles,
+    readFilesDefaultCollected,
     getOpenedFilePaths,
     getStagedFile,
     liveFilesGetter

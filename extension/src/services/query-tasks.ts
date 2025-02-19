@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import { getRootPath, updatePrevEdits, toPosixPath, readGlobFiles } from '../utils/file-utils';
+import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
 import { globalEditDetector } from '../editor-state-monitor';
@@ -7,7 +7,7 @@ import { requestAndUpdateLocation, requestAndUpdateEdit, requestAndUpdateLocatio
 import { DisposableComponent } from '../utils/base-component';
 import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view';
 import { statusBarItem } from '../ui/progress-indicator';
-import { EditType } from '../utils/base-types';
+import { EditType, FileAsHunks } from '../utils/base-types';
 
 async function predictLocation() {
     if (!globalEditorState.isActiveEditorLanguageSupported()) {
@@ -48,7 +48,18 @@ async function predictLocationByNavEdit() {
 
         statusBarItem.setStatusLoadingFiles();
         const rootPath = getRootPath();
-        const files = await readGlobFiles();
+        const files = await readFilesDefaultCollected() as [string, string | FileAsHunks][];
+
+        // replace "current content" of file to the "not edited and edited hunks" of file for the convenience of backend processing
+        for (const pathAndContent of files) {
+            if (globalEditDetector.hasSnapshot(pathAndContent[0])) {
+                const editedHunks = globalEditDetector.getEditedHunks(pathAndContent[0]);
+                if (editedHunks) {
+                    pathAndContent[1] = editedHunks;
+                }
+            }
+        }
+        
         try {
             const currentPrevEdits = await globalEditDetector.getUpdatedEditList();
             statusBarItem.setStatusQuerying("locator");

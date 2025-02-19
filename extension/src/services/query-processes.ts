@@ -3,7 +3,7 @@ import { createRenameRefactor, globalQueryContext } from '../global-result-conte
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
 import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
-import { BackendApiEditLocation, Edit, EditType, SimpleEdit } from '../utils/base-types';
+import { BackendApiEditLocation, Edit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from './json-validator';
 
 // cancellable, request process
@@ -325,7 +325,7 @@ async function requestAndUpdateLocation(
 
 async function requestAndUpdateLocationByNavEdit(
     rootPath: string, 
-    files: [string, string][],
+    files: [string, string | FileAsHunks][],
     prevEdits: Edit[],
     commitMessage: string, 
     language: string

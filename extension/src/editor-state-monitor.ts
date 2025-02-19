@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 import { globalEditorState } from './global-workspace-context';
 import { statusBarItem } from './ui/progress-indicator';
 import { Change, diffLines } from 'diff';
-import { Edit } from "./utils/base-types";
+import { Edit, FileAsHunks } from "./utils/base-types";
 import { DisposableComponent } from "./utils/base-component";
 import { getOpenedFilePaths, getStagedFile } from './utils/file-utils';
 import { globalQueryContext } from './global-result-context';
+import { splitLines } from './utils/utils';
 
 // TODO add tests for this
 class EditDetector {
@@ -36,6 +37,48 @@ class EditDetector {
         this.editList = [];
     }
 
+    getEditedHunks(path: string): FileAsHunks | null {
+        if (!this.textBaseSnapshots.has(path)) {
+            return null;
+        }
+        
+        const hunks: FileAsHunks = [];
+        
+        const fileLastSnapshot = this.textBaseSnapshots.get(path) as string;
+        const fileLastEdit = this.editList
+            .filter((edit) => edit.path === path)
+            .sort((edit1, edit2) => edit1.line - edit2.line);
+        
+        const lines = splitLines(fileLastSnapshot);
+        
+        let lastEditLine = 1;
+        const flush = (untilLine: number) => {
+            if (untilLine > lastEditLine) {
+                const keepLines = lines.slice(lastEditLine - 1, untilLine - 1).join("");
+                hunks.push(keepLines);
+                lastEditLine = untilLine;
+            }
+        };
+        for (const edit of fileLastEdit) {
+            if (lastEditLine > lines.length) break;
+            
+            flush(edit.line);
+
+            const toLine = lastEditLine + (edit.rmLine ?? 0);
+            const rmText = edit.rmText ?? "";
+            const addText = edit.addText ?? "";
+            hunks.push({
+                "beforeEdit": rmText,
+                "afterEdit": addText
+            });
+            lastEditLine = toLine;
+        }
+
+        flush(lines.length + 1);
+
+        return hunks;
+    }
+
     clearEditsAndSnapshots() {
         this.textBaseSnapshots = new Map();
         this.editList = [];
@@ -60,7 +103,7 @@ class EditDetector {
         for (const [path,] of this.textBaseSnapshots) {
             try {
                 const text = await getDocument(path);
-                this.updateEdits(path, text);
+                this.updateEditsOnFile(path, text);
             } catch (err) {
                 console.warn(`Using saved version: cannot update snapshot on ${path}`);
             }
@@ -68,7 +111,7 @@ class EditDetector {
         this.shiftEdits(undefined);
     }
 
-    updateEdits(path: string, text: string) {
+    updateEditsOnFile(path: string, text: string) {
         // Compare old `editList` with new diff on a document
         // All new diffs should be added to edit list, but merge the overlapped/adjoined to the old ones of them 
         // Merge "-" (removed) diff into an overlapped/adjoined old edit
