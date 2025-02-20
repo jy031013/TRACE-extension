@@ -5,8 +5,8 @@ export type EditType = "add" | "replace" | "remove";
 export type LineBreak = "\r" | "\n" | "\r\n";
 
 export type SimpleEdit = {
-    afterEdit: string,
-    beforeEdit: string
+    afterEdit: string[], // string list, can be empty list if no code added
+    beforeEdit: string[] // string list, can be empty list if no code added
 }
 
 export type BackendApiEditLocation = {
@@ -40,19 +40,16 @@ export type SingleLineEdit = {
     beforeContent: string, 
     afterContent: string
 };
-// export type RangeEdit = {
-//     location: vscode.Location,
-//     afterContent: string
-// }
+
 export type FileEdits = [vscode.Uri, vscode.TextEdit[]];
 
 export type Edit = {
     path: string; // the file path
     line: number; // starting line
     rmLine: number; // number of removed lines
-    rmText: string | null; // removed text, could be null
+    rmText: string[]; // removed text, if no text removed, then empty list
     addLine: number; // number of added lines
-    addText: string | null; // added text, could be null
+    addText: string[]; // added text, if no text added, then empty list
 };
 export const supportedLanguages = [
     "go",

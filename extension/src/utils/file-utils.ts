@@ -203,8 +203,8 @@ function detectEdit(prev: string, curr: string): SimpleEdit {
     }
 
     // Combine the remaining lines into strings
-    const beforeEdit = prevSnapshotStrList.slice(start, prevSnapshotStrList.length - end).join('');
-    const afterEdit = currSnapshotStrList.slice(start, currSnapshotStrList.length - end).join('');
+    const beforeEdit = prevSnapshotStrList.slice(start, prevSnapshotStrList.length - end);
+    const afterEdit = currSnapshotStrList.slice(start, currSnapshotStrList.length - end);
 
     // Find context 
     // const codeAbove = prevSnapshotStrList.slice(Math.max(0, start - 3), start).join('');
@@ -212,10 +212,8 @@ function detectEdit(prev: string, curr: string): SimpleEdit {
 
     // Return the result
     return {
-        beforeEdit: beforeEdit.trim(),
-        afterEdit: afterEdit.trim(),
-        // codeAbove: codeAbove.trim(),
-        // codeBelow: codeBelow.trim()
+        beforeEdit: beforeEdit,
+        afterEdit: afterEdit,
     };
 }
 

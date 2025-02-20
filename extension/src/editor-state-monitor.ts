@@ -150,12 +150,15 @@ class EditDetector {
                 "path": path,
                 "line": fromLine,
                 "rmLine": rmDiff?.count ?? 0,
-                "rmText": rmDiff?.value ?? null,
+                "rmText": splitLines(rmDiff?.value ?? "", false),
                 "addLine": addDiff?.count ?? 0,
-                "addText": addDiff?.value ?? null,
-                "codeAbove": "",
-                "codeBelow": ""
+                "addText": splitLines(addDiff?.value ?? "", false),
+                "codeAbove": [] as string[],
+                "codeBelow": [] as string[]
             };
+            if (newEdit.addLine != newEdit.addText.length || newEdit.rmLine != newEdit.rmText.length) {
+                console.error("Error encountered at constructing edit.")
+            }
 
             // Find context
             const lines = text.split('\n');
@@ -165,8 +168,8 @@ class EditDetector {
             const endBelow = Math.min(lines.length, toLine + 3);
 
             // Get the lines above and below
-            newEdit.codeAbove = lines.slice(startAbove, endAbove).join('\n');
-            newEdit.codeBelow = lines.slice(startBelow, endBelow).join('\n');
+            newEdit.codeAbove = lines.slice(startAbove, endAbove);
+            newEdit.codeBelow = lines.slice(startBelow, endBelow);
 
             // skip all old edits between this diff and the last diff
             while (
@@ -310,10 +313,8 @@ class EditDetector {
      */
     async getSimpleEditList() {
         return this.editList.map((edit) => ({
-			"beforeEdit": edit.rmText?.trim() ?? "",
-            "afterEdit": edit.addText?.trim() ?? "",
-            // "codeAbove": edit.codeAbove.trim(),
-            // "codeBelow": edit.codeBelow.trim()
+			"beforeEdit": edit.rmText,
+            "afterEdit": edit.addText,
         }));
     }
 
