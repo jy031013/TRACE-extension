@@ -131,6 +131,7 @@ def traverse_go_tree(node, results):
         for param in parameters.children:
             process_params(param, params)
         results.append({"type": "def", "name": func_name, "args": params, "name_range_start": range_start, "name_range_end": range_end})
+    
     elif node.type == 'call_expression':
         # 调用表达式可能是函数调用或方法调用
         func_name = node.child_by_field_name('function').text.decode('utf-8').strip()

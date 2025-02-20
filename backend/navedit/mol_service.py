@@ -1,3 +1,4 @@
+import json
 import logging
 import torch
 from tqdm import tqdm
@@ -12,8 +13,6 @@ from .code_window import CodeWindow
 from .invoker import ask_invoker, load_model_invoker
 from .locator import load_model_locator
 from .generator import load_model_generator
-
-logger = logging.getLogger(__name__)
 
 def load_invoker(checkpoint_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -33,10 +32,10 @@ def load_generator(checkpoint_path):
 def predict_navedit_service(data):
     lang = data["language"]
     modified_files = get_file_snapshot_for_edited_files(data["files"], data["prevEdits"])
-    prev_edit_hunks = [construct_prev_edit_hunk(file["snapshots"], file["edit"], lang) \
+    prev_edit_hunks = [construct_prev_edit_hunk(file["edit"], lang) \
                        for file in modified_files]
 
-    invoker, invoker_tokenizer, device = load_model_with_cache("invoker_model", lang, load_invoker)
+    invoker, invoker_tokenizer, device = load_model_with_cache("invoker_model", load_invoker)
 
     ### STARTING PHASE: judges the type of primitive edit
     # (NOTE logic gate only discriminates the last edit!)
@@ -47,16 +46,19 @@ def predict_navedit_service(data):
             "type": "normal"
         }
 
-    prior_edit_type, gate_info = logic_gate(prev_edit_hunks, "python")
+    prior_edit_type, gate_info = logic_gate(prev_edit_hunks, lang)
     
     if prior_edit_type != "normal":
         ### SECOND PHASE: discriminate the type of on-going edits
-        service, service_confidence = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang, logger)
+        service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang)
         if service == prior_edit_type:
+            print(f"+++ Invoker prediction: {service}")
             return {
                 "type": service,
                 "info": gate_info
             }
+    
+    print(f"+++ Invoker prediction: normal")
     return {
         "type": "normal"
     }
@@ -97,40 +99,27 @@ def range_to_sliding_windows(diagnostics, file_content):
 
 def get_file_snapshot_for_edited_files(files: list[tuple[str, str]], edits: list[dict]):
     '''For each file only consider its last edit and construct the snapshot.'''
-
+    # print(f"from backend/navedit/mol_service.py:get_file_snapshot_for_edited_files():")
+    # print(f"files:\n{json.dumps(files, indent=4)}")
+    # print(f"edits:\n{json.dumps(edits, indent=4)}")
+    
     modified_files = []
 
     files_by_path = {p: f for p, f in files}
 
+    # Categorize edits by their file
     edits_by_path = {}
     for edit in edits:
         if edit['path'] not in edits_by_path:
             edits_by_path[edit['path']] = []
         edits_by_path[edit['path']].append(edit)
 
-    edit_id_cnt = 0
-    for file_path, edits in edits_by_path.items():
-        snapshots = []
-        file_lines = files_by_path[file_path].replace('\r\n', '\n').replace('\r', '\n').split('\n')
-        curr_line = 0
-
-        last_edit = edits[-1]
-        # FIXME do conversion here, not addition
-        last_edit["id"] = edit_id_cnt
-        last_edit["before"] = last_edit["rmText"]
-        last_edit["after"] = last_edit["addText"]
-        edit_id_cnt += 1
-        
-        if last_edit['line'] > curr_line:
-            snapshots.append(file_lines[curr_line:last_edit['line']])
-        snapshots.append(last_edit)
-        curr_line = last_edit['line'] + last_edit['rmLine']
-        if len(file_lines) > curr_line:
-            snapshots.append(file_lines[curr_line:])
-
+    for file_path, snapshot in files_by_path.items():
+        last_edit = edits_by_path[file_path][-1] # only use the last prevEdit
+        last_edit["id"] = 0
         modified_files.append({
             "path": file_path,
-            "snapshots": snapshots,
+            "snapshots": snapshot,
             "edit": last_edit
         })
 
@@ -157,7 +146,7 @@ def predict_files(data):
     prev_edit_hunks = [construct_prev_edit_hunk(file["snapshots"], file["edit"], lang) \
                        for file in modified_files]
 
-    locator, locator_tokenizer, device = load_model_with_cache("locator_model", lang, load_locator)
+    locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
     result = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows, "normal", "positive")
     return result
@@ -303,92 +292,63 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
                 all_confidences.append(confidences)
     return all_preds,all_confidences
 
-def construct_prev_edit_hunk(snapshots: list[list|dict], edit: dict, lang: str):
+def construct_prev_edit_hunk(edit: dict, lang: str):
     """
     Func:
         construct prior edit hunk for a given edit
-        edit:{
-            "id": int,
-            "before": list of str, []
-            "after": list of str, []
-        }
-        edit hunk:{
-            "id": int,
-            "code_window": list of str, code snippet
-            "labels": list of str, label of each line in code_window
-            "before_edit": str, the code before edit
-            "after_edit": str, the code after edit
-            "file_path": str, file path of the edit
-            "type": str, edit type, add or replace
-            "edit_start_line_idx": int, the start line idx of the edit in the file"
+        edit hunk:
+        {
+            "path": "/home/workspace/test/tmp.py",
+            "line": 0,
+            "rmLine": 1,
+            "rmText": [
+                "def hello_world(name):\n"
+            ],
+            "addLine": 1,
+            "addText": [
+                "def hello_world():\n"
+            ],
+            "codeAbove": [],
+            "codeBelow": [
+                "    print(f\"hello world!, {name}\")",
+                "",
+                "if __name__ == \"__main__\":"
+            ]
         }
     """
-    edit_start_line_idx = 0
-
-    # find edit idx in snapshot
-    idx = 0
-    while idx < len(snapshots):
-        snapshot = snapshots[idx]
-        if type(snapshot) is dict and snapshot['id'] == edit['id']:
-            break
-        elif type(snapshot) is dict:
-            edit_start_line_idx+= len(snapshot['before'])
-        else:
-            edit_start_line_idx+= len(snapshot)
-        idx = idx + 1
+    # print("From backend/naveidt/mol_service.py:construct_prev_edit_hunk():")
+    # print("Edits:")
+    # print(json.dumps(edit,indent=4))
     
-    if idx == len(snapshots):
-        raise IndexError('Edit not found!')
-
-    # find context
-    code_pre = []
-    code_suf = []
-    if idx > 0:
-        snapshot = snapshots[idx-1]
-        if type(snapshot) is dict:
-            code_pre.extend(snapshot['before'])
-        else:
-            code_pre.extend(snapshot)
-    if idx < len(snapshots)-1:
-        snapshot = snapshots[idx+1]
-        if type(snapshot) is dict:
-            code_suf.extend(snapshot['before'])
-        else:
-            code_suf.extend(snapshot)
-    
-    code_pre = code_pre if len(code_pre)<3 else code_pre[-3:]
-    code_suf = code_suf if len(code_suf)<3 else code_suf[:3]
-
-    
-    if edit["before"] == [] and edit["after"] != []: # insert type
+    if edit["rmText"] == [] and edit["addText"] != []: # insert type
         hunk = {
-            "id": edit["id"],
+            "id": 0,
             "type": "insert",
-            "code_window": code_pre + edit["before"] + code_suf,
-            "inline_labels": ["keep"]*len(code_pre)+ ["keep"]*len(code_suf),
-            "inter_labels": ["null"] * len(code_pre) + ["insert"] + ["null"] * len(code_suf),
-            "before_edit": edit['before'],
-            "after_edit": edit['after'],
-            "edit_start_line_idx": max(0,edit_start_line_idx)
+            "code_window": edit["codeAbove"] + edit["rmText"] + edit["codeBelow"],
+            "inline_labels": ["keep"]*len(edit["codeAbove"])+ ["keep"]*len(edit["codeBelow"]),
+            "inter_labels": ["null"] * len(edit["codeAbove"]) + ["insert"] + ["null"] * len(edit["codeBelow"]),
+            "before_edit": edit["rmText"],
+            "after_edit": edit["addText"],
+            "edit_start_line_idx": edit["line"]
         }
         
-    elif edit["before"] != [] and edit["after"] == []: # delete type
+    elif edit["rmText"] != [] and edit["addText"] == []: # delete type
         hunk = {
             "id": edit["id"],
             "type": "delete",
-            "code_window": code_pre + edit["before"] + code_suf,
-            "inline_labels": ["keep"]*len(code_pre)+ ["delete"]* len(edit["before"]) + ["keep"]*len(code_suf),
-            "inter_labels": ["null"] * (len(code_pre) + len(edit["before"]) + len(code_suf)),
-            "before_edit": edit['before'],
-            "after_edit": edit['after'],
-            "edit_start_line_idx": max(0,edit_start_line_idx)
+            "code_window": edit["codeAbove"] + edit["rmText"] + edit["codeBelow"],
+            "inline_labels": ["keep"]*len(edit["codeAbove"])+ ["delete"]* len(edit["rmText"]) + ["keep"]*len(edit["codeBelow"]),
+            "inter_labels": ["null"] * (len(edit["codeAbove"]) + len(edit["rmText"]) + len(edit["codeBelow"])),
+            "before_edit": edit['rmText'],
+            "after_edit": edit['addText'],
+            "edit_start_line_idx": edit["line"]
         }
     
     else:
-        code_blocks = finer_grain_window(edit["before"], edit["after"], lang)
+        code_blocks = finer_grain_window(edit["rmText"], edit["addText"], lang)
         
-        inline_labels = ["keep"] * len(code_pre)
-        inter_labels = ["null"] * len(code_pre)
+        inline_labels = ["keep"] * len(edit["codeAbove"])
+        inter_labels = ["null"] * len(edit["codeAbove"])
         inter = "null"
         for block in code_blocks:
             if block["block_type"] == "insert":
@@ -411,19 +371,22 @@ def construct_prev_edit_hunk(snapshots: list[list|dict], edit: dict, lang: str):
         else:
             inter_labels.append(inter)
             
-        inline_labels += ["keep"] * len(code_suf)
-        inter_labels += ["null"] * len(code_suf)
+        inline_labels += ["keep"] * len(edit["codeBelow"])
+        inter_labels += ["null"] * len(edit["codeBelow"])
         assert len(inline_labels) + 1 == len(inter_labels)
         hunk = {
             "id": edit["id"],
             "type": "replace",
-            "code_window": code_pre + code_blocks + code_suf,
+            "code_window": edit["codeAbove"] + code_blocks + edit["codeBelow"],
             "inline_labels": inline_labels,
             "inter_labels": inter_labels,
-            "before_edit": edit['before'],
-            "after_edit": edit['after'],
-            "edit_start_line_idx": max(0,edit_start_line_idx)
+            "before_edit": edit['rmText'],
+            "after_edit": edit['addText'],
+            "edit_start_line_idx": edit["line"]
         }
+        
+    # print("Hunk:")
+    # print(json.dumps(hunk, indent = 4))
     return hunk
 
 def make_locator_dataset(sliding_windows: list, prev_eidt_hunks: list,

@@ -1,7 +1,6 @@
 from .is_rename import is_rename_edit
 from .is_defref import is_defref_edit
 from .is_clone import is_clone_edit
-from ..code_window import CodeWindow
 from tree_sitter import Language, Parser
 
 def parse_identifier(code: bytes, lang):
@@ -30,12 +29,8 @@ def parse_identifier(code: bytes, lang):
     return traverse_tree(root_node, [], lang)
 
 def logic_gate(prev_edit_hunks: list, lang: str):
-    '''Returns ("edit-type", result)
-    '''
-    prior_edits = [CodeWindow(hunk, "hunk") for hunk in prev_edit_hunks]
-    
-    code_before = prior_edits[-1].before_edit_region(split_by_line=False, allow_fuzzy=False)
-    code_after = prior_edits[-1].after_edit_region(split_by_line=False)
+    code_before = "".join(prev_edit_hunks[-1]["before_edit"])
+    code_after = "".join(prev_edit_hunks[-1]["after_edit"])
 
     rename_result = is_rename_edit(code_before, code_after, lang)
     if rename_result is not False:
@@ -45,7 +40,7 @@ def logic_gate(prev_edit_hunks: list, lang: str):
     if refdef_result is not False:
         return "def&ref", refdef_result
     
-    clone_result = is_clone_edit(prior_edits, lang)
+    clone_result = is_clone_edit(prev_edit_hunks)
     if clone_result is not False:
         if clone_result is None:
             raise ValueError("clone_result is None")

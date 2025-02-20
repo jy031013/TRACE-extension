@@ -23,18 +23,41 @@ def parse(code: str, language: str):
     tree = parser.parse(bytes(code, "utf8"))
     return tree
 
-def parse_identifier(code: bytes, lang):
-    def traverse_tree(node, results, lang, level=0):
+def parse_identifier(code: str, lang):
+    def traverse_tree(node, source_code, results, lang, level=0):
         if len(node.children) == 0 and "identifier" in node.type:
+            next_char_line = node.end_point[0]
+            next_char_col = node.end_point[1]
+            code_in_lines = source_code.splitlines(keepends=True)
+            
+            try:
+                assert next_char_line < len(code_in_lines)
+            except:
+                raise ValueError("The next char's line index is out of range")
+            
+            if next_char_col < len(code_in_lines[next_char_line]):
+                next_char = code_in_lines[next_char_line][next_char_col]
+            elif next_char_col == len(code_in_lines[next_char_line]): # the renamed identifier can be the last token at this line
+                next_char = ""
+            else:
+                print()
+                raise ValueError("The next char's column index is out of range")
+            
+            if next_char == "(":
+                identifier_type = "function"
+            else:
+                identifier_type = "variable"
+                
             results.append({
                 "name": node.text.decode("utf-8"),
                 "type": node.type,
                 "start": node.start_point,
                 "end": node.end_point,
-                "level": level #node.parent.text.decode("utf-8")
+                "level": level, #node.parent.text.decode("utf-8")
+                "identifier_type": identifier_type
             })
         for child in node.children:
-            traverse_tree(child, results, lang, level+1)
+            traverse_tree(child, source_code, results, lang, level+1)
             
         return results
     
@@ -43,10 +66,11 @@ def parse_identifier(code: bytes, lang):
     parser = Parser()
     parser.set_language(LANGUAGE)
     
-    tree = parser.parse(code)
+    encoded_code = code.encode("utf-8")
+    tree = parser.parse(encoded_code)
     root_node = tree.root_node
 
-    return traverse_tree(root_node, [], lang)
+    return traverse_tree(root_node, code, [], lang)
 
 def get_symbols(node, code_window):
     symbol_list = []
@@ -268,14 +292,8 @@ class RenameEditResults(TypedDict):
     deleted_identifiers: List[str]
     added_identifiers: List[str]
     map: Dict[str, str]
-
-rename_edit_results: RenameEditResults = {
-    "deleted_identifiers": [],
-    "added_identifiers": [],
-    "map": {}
-}
-
-def is_rename_edit(code_before: str, code_after: str, lang: str) -> Literal[False] | RenameEditResults:
+    
+def is_rename_edit(code_before: str, code_after: str, lang: str):
     # first match the lines between before & after
     tree_before = parse(code_before, lang)
     tree_after = parse(code_after, lang)
@@ -318,13 +336,21 @@ def is_rename_edit(code_before: str, code_after: str, lang: str) -> Literal[Fals
         unit_before = "".join([code_before_in_line[line_idx] for line_idx in mp[0]])
         unit_after = "".join([code_after_in_line[line_idx] for line_idx in mp[1]])
 
-        identifier_before = parse_identifier(unit_before.encode("utf-8"), lang)
-        identifier_after = parse_identifier(unit_after.encode("utf-8"), lang)
+        identifier_before = parse_identifier(unit_before, lang)
+        identifier_after = parse_identifier(unit_after, lang)
         
         response = rename_edit_assertions(identifier_before, identifier_after, unit_before, unit_after)
 
         if response is None:
             continue
+        
+        # here the parsed identifier line number is relative to mp[0][0] and mp[0][1], we need to adjust them to the correct line number by += mp[0][0] for before and += mp[1][0] for after
+        for deleted_identifier in response["deleted_identifiers"]:
+            deleted_identifier["start"] = (deleted_identifier["start"][0] + mp[0][0], deleted_identifier["start"][1])
+            deleted_identifier["end"] = (deleted_identifier["end"][0] + mp[0][0], deleted_identifier["end"][1])
+        for added_identifier in response["added_identifiers"]:
+            added_identifier["start"] = (added_identifier["start"][0] + mp[1][0], added_identifier["start"][1])
+            added_identifier["end"] = (added_identifier["end"][0] + mp[1][0], added_identifier["end"][1])
         
         # check if the map is consistent
         for deleted_identifer_name in response["map"].keys():
@@ -341,4 +367,4 @@ def is_rename_edit(code_before: str, code_after: str, lang: str) -> Literal[Fals
     if len(rename_edit_results["deleted_identifiers"]) == 0:
         return False
     return rename_edit_results
-            
+

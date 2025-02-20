@@ -159,7 +159,7 @@ def predict(json_input, language):
 
     stopwatch.start()
     # check model cache
-    model, tokenizer, device = load_model_with_cache(MODEL_ROLE, language, load_model)
+    model, tokenizer, device = load_model_with_cache(MODEL_ROLE, load_model)
     stopwatch.lap('load model')
 
     # 提取从 JavaScript 传入的参数
