@@ -165,10 +165,6 @@ async function readFilesDefaultCollected(useSnapshot = true) {
 
     const fileList: [string, string][] = [];
     await readFileFromPathList(absolutePathList, fileList);
-    // Replace directly when reading files, instead of replacing later
-    // if (useSnapshot) {
-    //     replaceCurrentSnapshot(fileList);
-    // }
 
     return fileList;
 }

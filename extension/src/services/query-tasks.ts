@@ -50,6 +50,10 @@ async function predictLocationByNavEdit() {
         const rootPath = getRootPath();
         const files = await readFilesDefaultCollected() as [string, string | FileAsHunks][];
 
+
+        // Update the prevEdits
+        const currentPrevEdits = await globalEditDetector.getUpdatedEditList();
+
         // replace "current content" of file to the "not edited and edited hunks" of file for the convenience of backend processing
         for (const pathAndContent of files) {
             if (globalEditDetector.hasSnapshot(pathAndContent[0])) {
@@ -59,9 +63,7 @@ async function predictLocationByNavEdit() {
                 }
             }
         }
-        
         try {
-            const currentPrevEdits = await globalEditDetector.getUpdatedEditList();
             statusBarItem.setStatusQuerying("locator");
             // TODO depart this step, because it is not parallel to other steps
             await requestAndUpdateLocationByNavEdit(rootPath, files, currentPrevEdits, commitMessage, globalEditorState.language);

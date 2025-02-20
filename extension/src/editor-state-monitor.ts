@@ -137,12 +137,12 @@ class EditDetector {
 
         const oldAdjustedEditsWithIdx = new Map();
         const newEdits: Edit[] = [];
-        let lastLine = 1;
+        let lastLine = 0;
         let oldEditIdx = 0;
 
         function mergeDiff(rmDiff?: Change, addDiff?: Change) {
             const fromLine = lastLine;
-            const toLine = lastLine + (rmDiff?.count ?? 0);
+            const toLine = lastLine + (addDiff?.count ?? 0);
 
             // construct new edit
             const newEdit = {
@@ -159,7 +159,7 @@ class EditDetector {
             // Find context
             const lines = text.split('\n');
             const startAbove = Math.max(0, fromLine - 4);
-            const endAbove = fromLine - 1;
+            const endAbove = Math.max(0, fromLine - 1);
             const startBelow = toLine;
             const endBelow = Math.min(lines.length, toLine + 3);
 
