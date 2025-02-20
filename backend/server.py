@@ -2,8 +2,6 @@ import logging
 import os
 from flask import Flask, config, request, make_response
 from waitress import serve
-from discriminator.interface import predict as disc_predict
-from locator.interface import predict as loc_predict
 from generator.interface import predict as gen_predict
 from navedit.mol_service import predict_files, predict_navedit_service
 import json
@@ -47,14 +45,6 @@ def run_predict(predict_name, predict_func):
     logger.info(f"{predict_name} sending output")
 
     return make_plain_text_response(result)
-
-@app.route('/discriminator', methods=['POST'])
-def run_discriminator():
-    return run_predict('discriminator', disc_predict)
-
-@app.route('/range', methods=['POST'])
-def run_range():
-    return run_predict('locator', loc_predict)
 
 @app.route('/content', methods=['POST'])
 def run_content():

@@ -54,7 +54,8 @@ class EditDetector {
         let lastEditLine = 1;
         const flush = (untilLine: number) => {
             if (untilLine > lastEditLine) {
-                const keepLines = lines.slice(lastEditLine - 1, untilLine - 1).join("");
+                // For unchanged lines, in String[] instead of String
+                const keepLines = lines.slice(lastEditLine - 1, untilLine - 1);
                 hunks.push(keepLines);
                 lastEditLine = untilLine;
             }

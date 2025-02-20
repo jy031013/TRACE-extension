@@ -62,7 +62,7 @@ export const supportedLanguages = [
     "java"
 ];
 
-export type FileAsHunks = (string | SimpleEdit)[];
+export type FileAsHunks = (string[] | SimpleEdit)[];
 
 export function isLanguageSupported(lang: string) {
     return supportedLanguages.includes(lang);

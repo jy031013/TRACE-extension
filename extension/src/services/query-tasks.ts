@@ -51,7 +51,7 @@ async function predictLocationByNavEdit() {
         const files = await readFilesDefaultCollected() as [string, string | FileAsHunks][];
 
 
-        // Update the prevEdits
+        // Update the prevEdits, edit.line are 0-indexed
         const currentPrevEdits = await globalEditDetector.getUpdatedEditList();
 
         // replace "current content" of file to the "not edited and edited hunks" of file for the convenience of backend processing
