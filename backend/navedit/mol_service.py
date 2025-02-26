@@ -5,9 +5,9 @@ import torch
 from model_cache import load_model_with_cache
 from .utils import *
 from .logic_gate import logic_gate
-from .invoker import ask_invoker, load_model_invoker
+from .invoker import load_model_invoker, ask_invoker
 from .locator import load_model_locator, predict_sliding_windows
-from .generator import load_model_generator
+from .generator import load_model_generator, generate_edit
 
 def load_invoker(checkpoint_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -163,8 +163,12 @@ def generator_interface(data):
     generator, generator_tokenizer, device = load_model_with_cache("generator_model", load_generator)
 
     code_window = data["codeWindow"]
+    inline_labels = data["inlineLabels"]
+    inter_labels = data["interLabels"]
     commit_message = data["commitMessage"]
     prev_edit_type = data["prevEditType"]
+
+    return generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, prev_edit_type)
 
 
     

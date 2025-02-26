@@ -231,6 +231,8 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
     
     all_preds, all_confidences = locator_predict(locator, locator_tokenizer, device, "multiple files", locator_dataloader)
 
+    all_preds = hardrule_label_correction(all_preds)
+
     locator_response = {}
     for sliding_window, preds, confidences in zip(sliding_windows, all_preds, all_confidences):
         inter_preds = [p for i, p in enumerate(preds) if i % 2 == 0]
@@ -287,7 +289,7 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
                         if pred_label == "<insert>" and confidence < 0.95: # debug
                             pred_label = "<null>"
                             confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<null>")].item()
-                        elif pred_label == "<replace>" and confidence < 0.5: # debug
+                        elif pred_label == "<replace>" and confidence < 0.7: # debug
                             pred_label = "<keep>"
                             confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<keep>")].item()
                         elif pred_label == "<delete>" and confidence < 0.95: # debug
@@ -302,3 +304,38 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
                 all_confidences.append(confidences)
     
     return all_preds,all_confidences
+
+def hardrule_label_correction(predictions: list[list[str]], confidences: list[list[float]]):
+    for prediction, confidence in zip(predictions, confidences):
+        if prediction[0] == "<block-split>":
+            prediction[0] = "<null>"
+        if prediction[-1] == "<block-split>":
+            prediction[-1] = "<null>"
+        for label_idx, label in enumerate(prediction[1:-1], start=1):
+            # <block-split> should be surrounded by <replace>
+            if label == "<block-split>" and (prediction[label_idx-1] != "<replace>" or prediction[label_idx+1] != "<replace>"):
+                prediction[label_idx] = "<null>"
+
+        # if there are multiple <insert>, you can't have all <delete> within them
+        # get the index of <insert>
+        insert_idxs = [i for i, label in enumerate(prediction) if label == "<insert>"]
+        if len(insert_idxs) <= 1:
+            continue
+        for i in range(len(insert_idxs)-1):
+            insert_begin_idx = insert_idxs[i]
+            insert_end_idx = insert_idxs[i+1]
+            all_delete = True
+            for label in prediction[insert_begin_idx+1:insert_end_idx]:
+                if label == "<keep>" or label == "<replace>":
+                    all_delete = False
+                    break
+            
+            if all_delete: # we need to change one <insert> to <null>
+                start_insert_confidence = confidence[insert_begin_idx]
+                end_insert_confidence = confidence[insert_end_idx]
+                if start_insert_confidence > end_insert_confidence:
+                    prediction[insert_end_idx] = "<null>"
+                else:
+                    prediction[insert_begin_idx] = "<null>"
+
+    return predictions

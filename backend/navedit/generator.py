@@ -37,106 +37,43 @@ def load_model_generator(model_path: str, device: torch.device):
     model.to(device)
     return model, tokenizer
 
-def generate_edit(matched_file_path: int,edit_idx: int, raw_location_preds, static_msg, commit_content: dict, commit_msg: str, prev_edits: list[dict], 
-                  generator: T5ForConditionalGeneration, generator_tokenizer: RobertaTokenizer, device: torch.device):
+def generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, prev_edit_type):
     """
-    Func:
-        Given location_results, commit_content, commit_msg, prev_edits
-        predict code after edit using Generator
-    Args:
-        matched_file_path: the file path that contain the matched edit or selected edit by Locator
-        edit_idx: int, index of the matched/selected edit within the file
-        commit_content: dict,commit content
-        commit_msg: str,commit msg
-        prev_edits: list,previous edits
-        generator: generator model
-        generator_tokenizer: generator tokenizer
-        device: device defined in main.py
-    Return:
-        edit: list of strings, [candidate1, candidate2, ..., candidate10]
-        record: dict, {"prepare_time": float, "predict_time": float}
+    
     """
-    def retrieve_elements(data_list, index_list):
-        return [data_list[i] for i in index_list if i < len(data_list)]
-    global code_window_prior_edits
-    global input
 
-    record = {
-        "prepare_time": 0,
-        "predict_time": 0
-    }
-    current_edit = commit_content[matched_file_path]['edits'][edit_idx].copy()
+    # Check some assertions
+    to_edit_lines = []
+    for label in inline_labels:
+        if label != "<keep>":
+            to_edit_lines.append(label)
+    
+    assert to_edit_lines == list(range(min(to_edit_lines), max(to_edit_lines)+1))
 
-    targetFileLines,targetFileContent = snapshot_to_file(commit_content[matched_file_path]['snapshot'])
-    targetFileLineNum = len(targetFileLines)
-
-    # get context of editRange
-    start_line = 0
-    end_line = 0
-    current_line = 0
-    editLineIdx = []
-    for hunk in commit_content[matched_file_path]['snapshot']:
-        if type(hunk) == list:
-            current_line += len(hunk)
-
-        elif type(hunk) == dict:
-            if hunk['id'] == current_edit['id'] and (hunk['type'] == 'replace' or hunk['type'] == 'delete'):
-                editLineIdx = [x for x in range(current_line,current_line+len(hunk['before']))]
-                start_line = max(0,editLineIdx[0]-CONTEXT_LENGTH)
-                end_line = min(targetFileLineNum-1,editLineIdx[-1]+CONTEXT_LENGTH)
-                break
-            elif hunk['id'] == current_edit['id'] and hunk['type'] == 'insert':
-                editLineIdx = [max(0, current_line-1)]
-                start_line = max(0,current_line-CONTEXT_LENGTH)
-                end_line = min(targetFileLineNum-1,current_line+CONTEXT_LENGTH-1)
-                break
-            else:
-                if hunk["state"] == 1:
-                    current_line+=len(hunk['after'])
+    if to_edit_lines != []:
+        for idx, inter_label in enumerate(inter_labels):
+            if inter_label == "<insert>":
+                if idx != 0:
+                    assert inter_labels[idx] != "<null>" or inter_labels[idx-1] != "<null>"
                 else:
-                    current_line+=len(hunk['before'])
-    
-    # prepare model input (string format)
-    whole_file_inter_golds = raw_location_preds[matched_file_path]["inter_labels"]
-    whole_file_inline_golds = raw_location_preds[matched_file_path]["inline_labels"]
-    
-    inline_labels = whole_file_inline_golds[start_line:end_line+1]
-    inter_labels = whole_file_inter_golds[start_line:end_line+2]
-    
-    # print(f"inline_labels: {inline_labels}")
-    # print(f"inter_labels: {inter_labels}")
-    code_window_lst = targetFileLines[start_line:end_line+1]
-    
-    current_edit["code_window"] = code_window_lst
-    current_edit["edit_start_line_idx"] = editLineIdx[0]
-    current_edit["inline_labels"] = [label[1:-1] for label in inline_labels] # remove < and >
-    current_edit["inter_labels"] = [label[1:-1] for label in inter_labels] # remove < and >
-    # rename key after to after_edit
-    current_edit["after_edit"] = current_edit.pop("after")
-    
-    """
-    current_edit = {
-        "id": int, id,
-        "file_path": str, file_path,
-        "type": str, add/replace,
-        "before": list[str], lines of code before edit,
-        "after": list[str], lines of code after edit,
-        "state": int, 1/0, if this edit has been executed,
-        "code_window": list[str], lines of code in the window, including context,
-        "edit_start_line_idx": int, the start line index of the edit in the window,
-        "inline_labels": list[str], labels for each line in the window, including context
-        "inter_labels": list[str], labels for each line in the window, including context
-    """
-    start = time.time()
-    selected_prev_edits = select_hunk(current_edit, prev_edits, generator_tokenizer)
-    code_window_prior_edits = selected_prev_edits.copy()
+                    assert inter_labels[idx] != "<null>"
+    # Done checking assertions
 
-    all_source_ids = formalize_generator_input(current_edit, commit_msg, static_msg, selected_prev_edits, generator_tokenizer)
+    # if is a delete code window, just delete without generator
+    if "<replace>" not in inline_labels and "<delete>" in inline_labels and "<insert>" not in inter_labels:
+        new_code_window = []
+        for line, label in zip(code_window, inline_labels):
+            if label == "<keep>":
+                new_code_window.append(line)
+        return ["".join(new_code_window)]
+
+    selected_prev_edits = select_hunk(code_window, inline_labels, inter_labels, prev_edit_hunks, generator_tokenizer)
+
+    all_source_ids = formalize_generator_input(code_window, inline_labels, inter_labels, commit_message, prev_edit_type, selected_prev_edits, generator_tokenizer)
     sampler = SequentialSampler(all_source_ids)
     eval_dataloader = DataLoader(all_source_ids,sampler=sampler, batch_size=1)
 
     # run model
-    start = time.time()
     generator.eval()
     for batch in eval_dataloader:
         batch = tuple(t.to(device) for t in batch)
@@ -157,23 +94,56 @@ def generate_edit(matched_file_path: int,edit_idx: int, raw_location_preds, stat
                 for candidate in preds[idx]:
                     replacements.append(generator_tokenizer.decode(candidate, skip_special_tokens=True,clean_up_tokenization_spaces=False))
 
+    if "<replace>" not in inline_labels and "<delete>" not in inline_labels and "<insert>" in inter_labels:
+        assert inter_labels.count("<insert>") == 1
+        prefix = "".join(code_window[:inter_labels.index("<insert>")])
+        suffix = "".join(code_window[inter_labels.index("<insert>")+1:])
+        replacements = [prefix + replacement + suffix for replacement in replacements]
+
+    else:
+        prefix = "".join(code_window[:min(to_edit_lines)])
+        suffix = "".join(code_window[max(to_edit_lines)+1:])
+        replacements = [prefix + replacement + suffix for replacement in replacements]
+
     return replacements
 
-def select_hunk(tgt_hunk: dict, prev_eidt_hunks: list[dict], tokenizer: RobertaTokenizer) -> 'list[dict]':
+def select_hunk(code_window: list[str], inline_labels: list[str], inter_labels: list[str], prev_eidt_hunks: list[dict], tokenizer: RobertaTokenizer) -> list[dict]:
     """
-    Func: 
-        Given a target hunk and a list of other hunks, select the prior edits from the other hunks
+    Func:
+        Select relevant prior edit hunks from all prev edits
     Args:
-        tgt_hunk: dict, the target hunk
-        other_hunks: list[dict], the other hunks
+        code_window: list[str], the code window
+        inline_labels: list[str], the inline labels
+        inter_labels: list[str], the inter labels
+        prev_eidt_hunks: list[dict], all prior edit hunks
+        tokenizer: RobertaTokenizer, the tokenizer
     Return:
-        prior_edits: list[dict], the prior edits
+        prior_edits: list[dict], the selected prior edits
     """
+    # form a corpus of BM25 to search from
     non_overlap_hunks = [CodeWindow(edit, "hunk") for edit in prev_eidt_hunks]
     choosen_hunk_ids = [hunk.id for hunk in non_overlap_hunks] # index to hunk id
     tokenized_corpus = [tokenizer.tokenize("".join(hunk.before_edit_region()+hunk.after_edit_region())) for hunk in non_overlap_hunks]
     bm25 = BM25Okapi(tokenized_corpus)
-    tokenized_query = tokenizer.tokenize("".join(tgt_hunk["code_window"]))
+
+    # Extract the `to edit part` from the code window
+    to_edit_part_line_idx = []
+    for idx, inline_label in enumerate(inline_labels):
+        if inline_label != "<keep>":
+            to_edit_part_line_idx.append(idx)
+    
+    for idx, inter_label in enumerate(inter_labels):
+        if inter_label != "<null>":
+            if idx == 0:
+                to_edit_part_line_idx.append(0)
+            else:
+                to_edit_part_line_idx.append(idx)
+                to_edit_part_line_idx.append(idx-1)
+    start_idx = min(to_edit_part_line_idx)
+    end_idx = max(to_edit_part_line_idx)
+    to_edit_part = code_window[start_idx:end_idx+1]
+    tokenized_query = tokenizer.tokenize("".join(to_edit_part))
+
     retrieval_code = bm25.get_top_n(tokenized_query, tokenized_corpus, n=3) 
     retrieved_index = [tokenized_corpus.index(i) for i in retrieval_code] # get index in choosen_hunk_ids
     prior_edit_id = [choosen_hunk_ids[idx] for idx in retrieved_index] # get corresponding hunk id
@@ -185,11 +155,14 @@ def select_hunk(tgt_hunk: dict, prev_eidt_hunks: list[dict], tokenizer: RobertaT
 
 def formalize_generator_input(sliding_window: list[str], inline_labels: list[str], 
                               inter_labels: list[str], prompt: str, static_msg: str,
-                              prior_edits: 'list[dict]', tokenizer) -> 'tuple[str, str]':
-
-    source_seq = f"<feedback>{static_msg}</feedback><code_window>"
-    
-    source_seq += sliding_window.formalize_as_generator_target_window(beautify=False, label_num=6)
+                              prior_edits: list[dict], tokenizer) -> TensorDataset:
+    """
+    Func:
+        Construct all elements into the gererator input
+    """
+    source_seq = f"<feedback>{static_msg}</feedback><code_window>{inter_labels[0]}"
+    for idx, (line, inline_label, inter_label) in enumerate(zip(sliding_window, inline_labels, inter_labels[1:])):
+        source_seq += f"{inline_label}{line}{inter_label}"
     # prepare the prompt region
     # truncate prompt if it encode to more than 64 tokens
     encoded_prompt = tokenizer.encode(prompt, add_special_tokens=False, max_length=64, truncation=True)
@@ -207,7 +180,6 @@ def formalize_generator_input(sliding_window: list[str], inline_labels: list[str
         if common_seq_len + prior_edit_seq_len > 512 - 3: # start of sequence token, end of sequence token and </prior_edits> token
             break
     source_seq += "</prior_edits>"
-    target_seq = "".join(sliding_window.after_edit)
     
     encoded_source_seq = tokenizer(source_seq, padding="max_length", truncation=True, max_length=512)
     source_ids = torch.tensor([encoded_source_seq["input_ids"]], dtype=torch.long)
