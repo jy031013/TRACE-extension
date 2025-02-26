@@ -29,7 +29,7 @@ def load_generator(checkpoint_path):
     generator_model, generator_tokenizer = load_model_generator(checkpoint_path, device)
     return generator_model, generator_tokenizer, device
 
-def predict_navedit_service(data):
+def predict_invoker(data):
     lang = data["language"]
     modified_files = get_file_snapshot_for_edited_files(data["files"], data["prevEdits"])
     prev_edit_hunks = [construct_prev_edit_hunk(file["edit"], lang) \
@@ -141,17 +141,66 @@ def get_sliding_window_for_files(files: list[tuple[str, str]]):
     return sliding_windows
 
 def predict_files(data):
+    '''
+    The frontend should retrieve code windows according to the one of these invoker results:
+
+    + normal: all files, each file one code window
+    + def&use: def and use code windows
+    + clone: cloned code windows
+    + diagnostic: NEW diagnostic code windows (old diagnostics existing before edit should be ignored)
+
+    (Each code window should be approximately fit into model input size, <=400 tokens)
+
+    {
+        files: [
+            'file_name': [
+                {
+                    'code_window_start_line': 0,
+                    'code_window': [],    // code window itself
+                }
+            ],
+            ...
+        ]
+    }
+
+    Returns:
+    {
+        files: [
+            'file_name': [
+                {
+                    'code_window_start_line': 0,
+                    'inline_labels': [],
+                    'inter_labels': []
+                }
+            ],
+            ...
+        ]
+    }
+    '''
+    if "language" not in data: 
+        raise ValueError("`language` not specified in the input data.")
+    
     lang = data["language"]
+    if type(lang) != str:
+        raise ValueError("`language` should be a string.")
+
+    # Extract all previous edit hunks from formatted file structure
     modified_files = get_file_snapshot_for_edited_files(data["files"], data["prevEdits"])
-    prev_edit_hunks = [construct_prev_edit_hunk(file["snapshots"], file["edit"], lang) \
+    prev_edit_hunks = [construct_prev_edit_hunk(file["edit"], lang) \
                        for file in modified_files]
 
     locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
+
+    # Split all files into sliding windows
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
+    
+    # Predict on each sliding window
     result = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows, "normal", "positive")
+
     return result
 
 def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_msg, device, sliding_windows, service_name, invoker_service_status=None):
+
     """
     Func:
         Given a list of sliding windows, predict the label of these sliding windows.
