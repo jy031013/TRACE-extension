@@ -31,10 +31,10 @@ def load_generator(checkpoint_path):
 
 def predict_navedit_service(data):
     lang = data["language"]
-    modified_files = get_file_snapshot_for_edited_files(data["files"], data["prevEdits"])
-    prev_edit_hunks = [construct_prev_edit_hunk(file["edit"], lang) \
-                       for file in modified_files]
+    # Transform the 3 label representation to 6 label representation
+    prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
 
+    # Activate invoker models
     invoker, invoker_tokenizer, device = load_model_with_cache("invoker_model", load_invoker)
 
     ### STARTING PHASE: judges the type of primitive edit
@@ -58,10 +58,8 @@ def predict_navedit_service(data):
                 "info": gate_info
             }
     
-    print(f"+++ Invoker prediction: normal")
-    return {
-        "type": "normal"
-    }
+    print(f"+++ Invoker prediction: normal, directly activating locator from backend")
+    return predict_files(data)
 
 def range_to_sliding_windows(diagnostics, file_content):
     """
@@ -97,34 +95,6 @@ def range_to_sliding_windows(diagnostics, file_content):
     
     return sliding_windows
 
-def get_file_snapshot_for_edited_files(files: list[tuple[str, str]], edits: list[dict]):
-    '''For each file only consider its last edit and construct the snapshot.'''
-    # print(f"from backend/navedit/mol_service.py:get_file_snapshot_for_edited_files():")
-    # print(f"files:\n{json.dumps(files, indent=4)}")
-    # print(f"edits:\n{json.dumps(edits, indent=4)}")
-    
-    modified_files = []
-
-    files_by_path = {p: f for p, f in files}
-
-    # Categorize edits by their file
-    edits_by_path = {}
-    for edit in edits:
-        if edit['path'] not in edits_by_path:
-            edits_by_path[edit['path']] = []
-        edits_by_path[edit['path']].append(edit)
-
-    for file_path, snapshot in files_by_path.items():
-        last_edit = edits_by_path[file_path][-1] # only use the last prevEdit
-        last_edit["id"] = 0
-        modified_files.append({
-            "path": file_path,
-            "snapshots": snapshot,
-            "edit": last_edit
-        })
-
-    return modified_files
-
 def get_sliding_window_for_files(files: list[tuple[str, str]]):
     max_sliding_size = 8
     sliding_windows = []
@@ -142,9 +112,7 @@ def get_sliding_window_for_files(files: list[tuple[str, str]]):
 
 def predict_files(data):
     lang = data["language"]
-    modified_files = get_file_snapshot_for_edited_files(data["files"], data["prevEdits"])
-    prev_edit_hunks = [construct_prev_edit_hunk(file["snapshots"], file["edit"], lang) \
-                       for file in modified_files]
+    prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
 
     locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
@@ -295,26 +263,30 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
 def construct_prev_edit_hunk(edit: dict, lang: str):
     """
     Func:
-        construct prior edit hunk for a given edit
-        edit hunk:
-        {
-            "path": "/home/workspace/test/tmp.py",
-            "line": 0,
-            "rmLine": 1,
-            "rmText": [
-                "def hello_world(name):\n"
-            ],
-            "addLine": 1,
-            "addText": [
-                "def hello_world():\n"
-            ],
-            "codeAbove": [],
-            "codeBelow": [
-                "    print(f\"hello world!, {name}\")",
-                "",
-                "if __name__ == \"__main__\":"
-            ]
-        }
+        Represent prior edit hunks with enriched edit representation
+    Args:
+        edit: a prior edit like:
+            {
+                "path": "/home/workspace/test/tmp.py",
+                "line": 0,
+                "rmLine": 1,
+                "rmText": [
+                    "def hello_world(name):\n"
+                ],
+                "addLine": 1,
+                "addText": [
+                    "def hello_world():\n"
+                ],
+                "codeAbove": [],
+                "codeBelow": [
+                    "    print(f\"hello world!, {name}\")",
+                    "",
+                    "if __name__ == \"__main__\":"
+                ]
+            }
+        lang: str, the language of the code ["python", "java", "go", "javascript", "typescript"]
+    Return:
+        hunk: dict, the enriched edit representation
     """
     # print("From backend/naveidt/mol_service.py:construct_prev_edit_hunk():")
     # print("Edits:")
@@ -334,7 +306,7 @@ def construct_prev_edit_hunk(edit: dict, lang: str):
         
     elif edit["rmText"] != [] and edit["addText"] == []: # delete type
         hunk = {
-            "id": edit["id"],
+            "id": 0,
             "type": "delete",
             "code_window": edit["codeAbove"] + edit["rmText"] + edit["codeBelow"],
             "inline_labels": ["keep"]*len(edit["codeAbove"])+ ["delete"]* len(edit["rmText"]) + ["keep"]*len(edit["codeBelow"]),
@@ -375,7 +347,7 @@ def construct_prev_edit_hunk(edit: dict, lang: str):
         inter_labels += ["null"] * len(edit["codeBelow"])
         assert len(inline_labels) + 1 == len(inter_labels)
         hunk = {
-            "id": edit["id"],
+            "id": 0,
             "type": "replace",
             "code_window": edit["codeAbove"] + code_blocks + edit["codeBelow"],
             "inline_labels": inline_labels,
