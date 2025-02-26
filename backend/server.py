@@ -3,7 +3,7 @@ import os
 from flask import Flask, config, request, make_response
 from waitress import serve
 from generator.interface import predict as gen_predict
-from navedit.mol_service import predict_files, predict_navedit_service
+from navedit.mol_service import predict_files, predict_invoker
 import json
 import configparser
 
@@ -18,14 +18,12 @@ logger.info("Modules loaded. Server ready.")
 
 def make_plain_text_response(result):
     response = make_response(result, 200)
-    response.mimetype = "text/plain"
-    response.charset = "utf-8"
+    response.mimetype = "text/plain; charset=utf-8"
     return response
 
 def make_400_response(err_msg):
     response = make_response(err_msg, 400)
-    response.mimetype = "text/plain"
-    response.charset = "utf-8"
+    response.mimetype = "text/plain; charset=utf-8"
     return response
 
 def run_predict(predict_name, predict_func):
@@ -52,7 +50,7 @@ def run_content():
 
 @app.route('/navedit/invoker', methods=['POST'])
 def post_navedit_invoker():
-    return run_predict('navedit-invoker', predict_navedit_service)
+    return run_predict('navedit-invoker', predict_invoker)
 
 # TODO add file-by-file transfer when scanning the whole project
 @app.route('/navedit/locator', methods=['POST'])
