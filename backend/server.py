@@ -18,14 +18,12 @@ logger.info("Modules loaded. Server ready.")
 
 def make_plain_text_response(result):
     response = make_response(result, 200)
-    response.mimetype = "text/plain"
-    response.charset = "utf-8"
+    response.mimetype = "text/plain; charset=utf-8"
     return response
 
 def make_400_response(err_msg):
     response = make_response(err_msg, 400)
-    response.mimetype = "text/plain"
-    response.charset = "utf-8"
+    response.mimetype = "text/plain; charset=utf-8"
     return response
 
 def run_predict(predict_name, predict_func):
