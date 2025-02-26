@@ -1,11 +1,11 @@
-import logging
 import os
-from flask import Flask, config, request, make_response
-from waitress import serve
-from generator.interface import predict as gen_predict
-from navedit.mol_service import predict_files, predict_invoker
 import json
+import logging
 import configparser
+
+from waitress import serve
+from flask import Flask, config, request, make_response
+from navedit.mol_service import invoker_interface, locator_interface, generator_interface
 
 app = Flask(__name__)
 
@@ -46,16 +46,16 @@ def run_predict(predict_name, predict_func):
 
 @app.route('/content', methods=['POST'])
 def run_content():
-    return run_predict('generator', gen_predict)
+    return run_predict('generator', generator_interface)
 
 @app.route('/navedit/invoker', methods=['POST'])
 def post_navedit_invoker():
-    return run_predict('navedit-invoker', predict_invoker)
+    return run_predict('navedit-invoker', invoker_interface)
 
 # TODO add file-by-file transfer when scanning the whole project
 @app.route('/navedit/locator', methods=['POST'])
 def post_navedit_locator():
-    return run_predict('navedit-locator', predict_files)
+    return run_predict('navedit-locator', locator_interface)
 
 if __name__ == '__main__':
     # app.run(host='0.0.0.0', port=5001, debug=True)

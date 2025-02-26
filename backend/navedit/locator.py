@@ -1,5 +1,10 @@
 import torch
 import torch.nn as nn
+
+from tqdm import tqdm
+from rank_bm25 import BM25Okapi
+from .code_window import CodeWindow
+from torch.utils.data import DataLoader, TensorDataset
 from transformers import RobertaTokenizer, T5Config, T5ForConditionalGeneration
 
 class Locator(nn.Module):
@@ -74,6 +79,85 @@ class Locator(nn.Module):
         else:
             return lm_logits
    
+def make_locator_dataset(sliding_windows: list, prev_eidt_hunks: list,
+                         locator_tokenizer: RobertaTokenizer, commit_msg: str)-> TensorDataset:
+    """
+    Func:
+        Given a fixed prior edit estimator, select most relevant hunk as prior edit 
+        and construct the dataset for locator to infer
+    Args:
+        sliding_windows: list of dict:
+            {
+                "code_window": list[str],
+                "file_path": file,
+                "start_line_idx": 0,
+            }
+        prev_edit_hunks: list of dict:
+            {   
+                "id": int, id,
+                "type": str, type, ["delete", "insert", "replace"]
+                "code_window": list[str | dict], # contain prefix, suffix context
+                "inline_labels": list[str],
+                "inter_labels": list[str],
+                "before_edit": list[str], # exclude prefix context
+                "after_edit": list[str], # exclude suffix context
+                "file_path": file,
+                "id": 0
+            }
+    """
+    source_seqs = []
+    hunks = [CodeWindow(edit, "hunk") for edit in prev_eidt_hunks]
+    for sliding_window in sliding_windows:
+        non_overlap_hunks = hunks
+        choosen_hunk_ids = [hunk.id for hunk in hunks] # index to hunk id
+        tokenized_corpus = [locator_tokenizer.tokenize("".join(hunk.before_edit_region()+hunk.after_edit_region())) for hunk in non_overlap_hunks]
+        bm25 = BM25Okapi(tokenized_corpus)
+        tokenized_query = locator_tokenizer.tokenize("".join(sliding_window["code_window"]))
+        retrieval_code = bm25.get_top_n(tokenized_query, tokenized_corpus, n=3) 
+        retrieved_index = [tokenized_corpus.index(i) for i in retrieval_code] # get index in choosen_hunk_ids
+        prior_edit_id = [choosen_hunk_ids[idx] for idx in retrieved_index] # get corresponding hunk id
+        prior_edits = []
+        for id in prior_edit_id: # preserve the order
+            prior_edits.append([hunk for hunk in hunks if hunk.id == id][0])
+            
+        source_seq = formalize_locator_input(sliding_window, commit_msg, prior_edits, locator_tokenizer)
+        source_seqs.append(source_seq)
+        
+    encoded_source_seq = locator_tokenizer(source_seqs, padding="max_length", truncation=True, max_length=512)
+    
+    source_ids = torch.tensor(encoded_source_seq["input_ids"])
+    source_mask = torch.tensor(encoded_source_seq["attention_mask"])
+    dataset = TensorDataset(source_ids, source_mask)
+
+    return dataset
+
+def formalize_locator_input(sliding_window: dict, prompt: str, 
+                            prior_edits: list[dict], tokenizer: RobertaTokenizer) -> tuple[str, str]:
+    """
+    Func:
+        Given a sliding window, prior edits, and prompt, form the input sequence for locator
+    Args:
+        sliding_window: one sliding window
+        prior_edits: the prior edit hunks selected
+    """
+    source_seq = "<code_window><inter-mask>"
+    for line in sliding_window["code_window"]:
+        source_seq += f"<mask>{line}<inter-mask>"
+    source_seq += f"<prompt>{prompt}</prompt><prior_edits>"
+    source_seq_len = len(tokenizer.encode(source_seq, add_special_tokens=False))
+    
+    # prepare the prior edits region
+    for prior_edit in prior_edits:
+        prior_edit_seq = prior_edit.formalize_as_prior_edit(beautify=False, label_num=6)
+        prior_edit_seq_len = len(tokenizer.encode(prior_edit_seq, add_special_tokens=False))
+        # Allow the last prior edit to be truncated (Otherwise waste input spaces)
+        source_seq += prior_edit_seq
+        source_seq_len += prior_edit_seq_len
+        if source_seq_len + prior_edit_seq_len > 512 - 3: # start of sequence token, end of sequence token and </prior_edits> token
+            break
+    source_seq += "</prior_edits>"
+    
+    return source_seq
 
 def load_model_locator(model_path,device):
     config_class, model_class, tokenizer_class = T5Config, T5ForConditionalGeneration, RobertaTokenizer
@@ -106,3 +190,115 @@ def load_model_locator(model_path,device):
     locator.load_state_dict(torch.load(model_path, map_location = device), strict = False)
     locator.to(device)
     return locator, locator_tokenizer
+
+def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_msg, device, sliding_windows, service_name):
+
+    """
+    Func:
+        Given a list of sliding windows, construct locator input, and return predicted labels
+    Args:
+        prev_edit_hunks: list of dict:
+            {   
+                "id": int, id,
+                "type": str, type, ["delete", "insert", "replace"]
+                "code_window": list[str | dict], # contain prefix, suffix context
+                "inline_labels": list[str],
+                "inter_labels": list[str],
+                "before_edit": list[str], # exclude prefix context
+                "after_edit": list[str], # exclude suffix context
+                "file_path": file,
+                "id": 0
+            }
+        locator: Locator, the locator model
+        locator_tokenizer: RobertaTokenizer, the locator tokenizer
+        commit_msg: str, the commit message
+        device: torch.device, the device to run the model
+        sliding_windows: list of dict:
+            {
+                "code_window": list[str],
+                "file_path": file,
+                "start_line_idx": 0,
+            }
+        service_name: str, in ["def&ref", "clone", "diagnose", "normal"]
+    Return:
+        None. The result is stored in raw_preds, the time cost is saved in record    
+    """
+    locator_dateset_one_file = make_locator_dataset(sliding_windows, prev_edit_hunks,locator_tokenizer,commit_msg)
+    locator_dataloader = DataLoader(locator_dateset_one_file, batch_size=20, shuffle=False)
+            
+    # predict locations
+    locator.eval()
+    
+    all_preds, all_confidences = locator_predict(locator, locator_tokenizer, device, "multiple files", locator_dataloader)
+
+    locator_response = {}
+    for sliding_window, preds, confidences in zip(sliding_windows, all_preds, all_confidences):
+        inter_preds = [p for i, p in enumerate(preds) if i % 2 == 0]
+        inline_preds = [p for i, p in enumerate(preds) if i % 2 == 1]
+        inter_confidences = [c for i, c in enumerate(confidences) if i % 2 == 0]
+        inline_confidences = [c for i, c in enumerate(confidences) if i % 2 == 1]
+
+        # in case that 8 lines of code is still too long for locator, then the number of labels cannot match the number of lines
+        if len(inline_preds) != len(sliding_window["code_window"]):
+            inline_preds.extend(["<keep>"]*(len(sliding_window["code_window"])-len(inline_preds)))
+            inline_confidences.extend([0]*(len(sliding_window["code_window"])-len(inline_confidences)))
+        if len(inter_preds) != len(sliding_window["code_window"]) + 1:
+            inter_preds.extend(["<keep>"]*(len(sliding_window["code_window"])+1-len(inter_preds)))
+            inter_confidences.extend([0]*(len(sliding_window["code_window"])+1-len(inter_confidences)))
+        
+        assert len(inline_preds) == len(sliding_window["code_window"])
+        assert len(inline_preds) == len(inline_confidences)
+        assert len(inter_preds) == len(sliding_window["code_window"]) + 1
+        assert len(inter_preds) == len(inter_confidences)
+
+        if sliding_window["file_path"] not in locator_response:
+            locator_response[sliding_window["file_path"]] = []
+        else:
+            locator_response[sliding_window["file_path"]].append({
+                "code_window_start_line": sliding_window["start_line_idx"],
+                "inline_labels": inline_preds,
+                "inter_labels": inter_preds,
+                "inline_confidences": inline_confidences,
+                "inter_confidences": inter_confidences,
+                "service_name": service_name
+            })
+            
+    return locator_response
+
+def locator_predict(locator, locator_tokenizer, device, file_path, locator_dataloader):
+    all_preds = []
+    all_confidences = []
+    for batch in tqdm(locator_dataloader,desc=f"predicting locations on {file_path}",leave=False):
+        batch = tuple(t.to(device) for t in batch)
+        source_ids,source_mask = batch                  
+        with torch.no_grad():
+            lm_logits = locator(source_ids=source_ids,source_mask=source_mask, train=False).to(device)
+            lm_logits = torch.nn.functional.softmax(lm_logits, dim=-1)
+                # extract masked edit operations
+            for i in range(lm_logits.shape[0]): # for sample within batch
+                output = []
+                confidences = []
+                for j in range(lm_logits.shape[1]): # for every token
+                    if source_ids[i][j] == locator.inline_mask_id or source_ids[i][j] == locator.inter_mask_id: # if is masked
+                        pred_label = locator_tokenizer.decode(torch.argmax(lm_logits[i][j]),clean_up_tokenization_spaces=False)
+                        if not pred_label.startswith("<") or not pred_label.endswith(">"):
+                            pred_label = f"<{pred_label}>"
+                        confidence = torch.max(lm_logits[i][j]).item() # Get the confidence value (0-1)
+                        if pred_label == "<insert>" and confidence < 0.95: # debug
+                            pred_label = "<null>"
+                            confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<null>")].item()
+                        elif pred_label == "<replace>" and confidence < 0.5: # debug
+                            pred_label = "<keep>"
+                            confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<keep>")].item()
+                        elif pred_label == "<delete>" and confidence < 0.95: # debug
+                            pred_label = "<keep>"
+                            confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<keep>")].item()
+                        elif pred_label == "<block-split>" and confidence < 0.95: #debug
+                            pred_label = "<null>"
+                            confidence = lm_logits[i][j][locator_tokenizer.convert_tokens_to_ids("<null>")].item()
+                        output.append(pred_label)
+                        confidences.append(confidence)
+                all_preds.append(output)
+                all_confidences.append(confidences)
+    
+    return all_preds,all_confidences

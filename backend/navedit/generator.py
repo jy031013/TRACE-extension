@@ -159,23 +159,6 @@ def generate_edit(matched_file_path: int,edit_idx: int, raw_location_preds, stat
 
     return replacements
 
-def snapshot_to_file(snapshot):
-    """
-    Fucn:
-        replace the current edit with edit['before'] to get the current version or current version
-    Return:
-        file_lines: the file content after edit (list of lines)
-        file_content: the file content after edit (as a whole string)
-    """
-    file_lines = []
-    for window in snapshot:
-        if type(window) == dict: # edit
-            file_lines.extend(window['before'] if window['state']==0 else window['after'])
-        else:
-            file_lines.extend(window)
-    return file_lines, ''.join(file_lines)
-
-
 def select_hunk(tgt_hunk: dict, prev_eidt_hunks: list[dict], tokenizer: RobertaTokenizer) -> 'list[dict]':
     """
     Func: 
@@ -200,10 +183,12 @@ def select_hunk(tgt_hunk: dict, prev_eidt_hunks: list[dict], tokenizer: RobertaT
     
     return prior_edits
 
-def formalize_generator_input(sliding_window: dict, prompt: str, static_msg: str,
-                            prior_edits: 'list[dict]', tokenizer) -> 'tuple[str, str]':
-    sliding_window = CodeWindow(sliding_window, "hunk")
-    source_seq = f"<feedback>{static_msg}</feedback>"
+def formalize_generator_input(sliding_window: list[str], inline_labels: list[str], 
+                              inter_labels: list[str], prompt: str, static_msg: str,
+                              prior_edits: 'list[dict]', tokenizer) -> 'tuple[str, str]':
+
+    source_seq = f"<feedback>{static_msg}</feedback><code_window>"
+    
     source_seq += sliding_window.formalize_as_generator_target_window(beautify=False, label_num=6)
     # prepare the prompt region
     # truncate prompt if it encode to more than 64 tokens
