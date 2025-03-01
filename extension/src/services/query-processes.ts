@@ -4,7 +4,13 @@ import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '
 import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { BackendApiEditLocation, Edit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
-import { BackendApiEditGenerationJsonType } from './json-validator';
+import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
+
+/* 
+    The following is experimental code for wrapping backend request
+    into a cancellable object. Try replacing the JSON validation with
+    libraries like io-ts or arkType.
+*/
 
 // cancellable, request process
 type RequestStatus = {
@@ -208,6 +214,10 @@ class BackendRequest {
         return await this.getRequestOrCancelled();
     }
 }
+
+/*
+    Request processes for different backend API
+*/
 
 async function requestAndUpdateLocation(
     rootPath: string, 
@@ -448,7 +458,6 @@ async function requestAndUpdateLocationByNavEdit(
     }
 }
 
-
 async function requestAndUpdateEdit(
     fileContent: string,
     editType: EditType,
@@ -497,14 +506,6 @@ async function requestAndUpdateEdit(
 
     return result;
 }
-
-function isInt(value: any): asserts value is number {
-    if (!(typeof value === 'number' && Number.isInteger(value))) {
-        throw new Error('Value is not an integer');
-    }
-}
-isInt(1);
-
 
 export {
     requestAndUpdateLocation,
