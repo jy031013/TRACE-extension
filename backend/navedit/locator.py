@@ -237,6 +237,8 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
     for sliding_window, preds, confidences in zip(sliding_windows, all_preds, all_confidences):
         inter_preds = [p for i, p in enumerate(preds) if i % 2 == 0]
         inline_preds = [p for i, p in enumerate(preds) if i % 2 == 1]
+        if set(inter_preds) == set(["<null>"]) and set(inline_preds) == set(["<keep>"]):
+            continue
         inter_confidences = [c for i, c in enumerate(confidences) if i % 2 == 0]
         inline_confidences = [c for i, c in enumerate(confidences) if i % 2 == 1]
 
