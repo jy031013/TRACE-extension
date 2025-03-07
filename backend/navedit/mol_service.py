@@ -140,10 +140,12 @@ def locator_interface(data):
 
     locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
 
+    locator_response = {}
+
     # Step 1: if provide any lspFoundLocations, directly call locator on those code windows
     if data["lspServiceName"] in ["def&ref", "clone", "diagnose"] and data["lspFoundLocations"] is not []:
-        sliding_windows = get_sliding_window_for_lsp_locations(data["lspFoundLocations"])
-    locator_response = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, sliding_windows, data["lspServiceName"])
+        sliding_windows = get_sliding_window_for_lsp_locations(data["files"], data["lspFoundLocations"])
+        locator_response = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, sliding_windows)
         
     # Step 2: check if those windows contain any edit-able locations predicted by locator
     # If so, directly return those locations
@@ -154,7 +156,7 @@ def locator_interface(data):
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
     
     # Predict on each sliding window
-    return predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows, data["prevEditType"])
+    return predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows)
 
 def generator_interface(data):
     """
