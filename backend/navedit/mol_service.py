@@ -27,15 +27,51 @@ def load_generator(checkpoint_path):
 def invoker_interface(data):
     """
     This is the interface between backend and frontend for edit invoker.
-     
     This function predicts whether the last edit belongs to a pre-defined edit composition
-
+    
     Args:
-        data: dict, the input data from frontend
+        data: dict, the input data from frontend: 
+        {
+            "language": str, in ["go", "python", "java", "typescript", "javascript"],
+            "prevEdits": list[dict], dict structure:
+            {
+                "path": str, file path
+                "line": int, the line index where the edit happens,
+                "rmLine": int, the number of lines being removed,
+                "rmText": list[str], the lines being removed, each str is a line of code
+                "addLine": int, the number of lines being added,
+                "addText": list[str], the lines being added, each str is a line of code
+                "codeAbove": str, the code context above the edit
+                "codeBelow": str, the code context below the edit
+            }
+            "files": dict, dict structure:
+            {
+                "file_path": list[str], each str is a line of code
+            }
+            "commitMsg": str, the commit message
+            "lspServiceName": str | None, in ["def&ref", "clone", "diagnose", "normal"] # rename is excluded, as it can be processed by frontend LSP directly,
+            "lspFoundLocations": list[dict] | list[None], dict structure:
+            {
+                "file_path": str,
+                "start": {
+                    "line": int,
+                    "col": int
+                },
+                "end": {
+                    "line": int,
+                    "col": int
+                }
+            }
+        }
+    
     Return:
         if last edit is a normal edit, this function will directly call locator and return predicted edit labels
         otherwise, send edit composition type to front end
     """
+    # If frontend LSP detected clone or diagnose, and found locations, directly call locator
+    if data["lspServiceName"] in ["clone", "diagnose"] and data["lspFoundLocations"] is not []:
+        return locator_interface(data)
+    
     lang = data["language"]
     # Transform the 3 label representation to 6 label representation
     prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
@@ -47,6 +83,7 @@ def invoker_interface(data):
     # (NOTE logic gate only discriminates the last edit!)
     # (prior_edit_type = "rename" | "def&ref" | "clone" | "normal")
     # (gate_info contains refactor information like rename) 
+    # Due to code logic, clone, diagnose can be not predicted by invoker
     if len(prev_edit_hunks) == 0:
         return {
             "type": "normal"
@@ -59,45 +96,23 @@ def invoker_interface(data):
         service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang)
         if service == prior_edit_type:
             print(f"+++ Invoker prediction: {service}")
+            assert service in ["rename", "def&ref"]
             return {
                 "type": service,
                 "info": gate_info
             }
     
     print(f"+++ Invoker prediction: normal, directly activating locator from backend")
-    data["prevEditType"] = "normal"
+    data["lspServiceName"] = "normal"
     return locator_interface(data)
 
 def locator_interface(data):
     '''
     This is the interface between backend and frontend for edit location.
     
-    If prior edit type is `rename`, `def&ref`, `clone` or `diagnose`. The frontend should retrieve code windows according to the one of these invoker results:
-
-    + def&ref: def and use code windows found by LSP
-    + clone: cloned code windows found by LSP
-    + diagnose: NEW diagnostic code windows found by LSP (old diagnostics existing before edit should be ignored)
-    
-    If prior edit type is normal, this function is called by backend `predict_invoker()`. In this case, the frontend should retrieve code windows as follows:
-    
-    + normal: all files, each file one code window
-
-    (Each code window should be approximately fit into model input size, <=400 tokens)
-
     Args:
-        data: dict, the input data from frontend
-        {
-            files: {
-                'file_name': [
-                    {
-                        'code_window_start_line': 0,
-                        'code_window': [],    // code window itself
-                    }
-                ],
-                ...
-            }
-        }
-
+        Please refer to `invoker_interface()` for the expected input data structure.
+        
     Returns:
         {
             files: {
@@ -125,7 +140,17 @@ def locator_interface(data):
 
     locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
 
-    # Split all files into sliding windows
+    # Step 1: if provide any lspFoundLocations, directly call locator on those code windows
+    if data["lspServiceName"] in ["def&ref", "clone", "diagnose"] and data["lspFoundLocations"] is not []:
+        sliding_windows = get_sliding_window_for_lsp_locations(data["lspFoundLocations"])
+    locator_response = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, sliding_windows, data["lspServiceName"])
+        
+    # Step 2: check if those windows contain any edit-able locations predicted by locator
+    # If so, directly return those locations
+    if locator_response != {}:
+        return locator_response
+    
+    # Step 3: if no edit-able locations are found, split all files into sliding windows
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
     
     # Predict on each sliding window
@@ -146,7 +171,7 @@ def generator_interface(data):
             "inlineLabels": str[str], in ["<keep>", "<delete>", "<replace>"],
             "commitMessage": str,
             "prevEdits": list[dict], refer to `construct_prev_edit_hunk()` at `./utils.py` for expected structure
-            "prevEditType": str, in ["def&ref", "clone", "diagnose", "normal"]
+            "lspServiceName": str, in ["def&ref", "clone", "diagnose", "normal"]
         }
 
     Returns:
@@ -166,9 +191,9 @@ def generator_interface(data):
     inline_labels = data["inlineLabels"]
     inter_labels = data["interLabels"]
     commit_message = data["commitMessage"]
-    prev_edit_type = data["prevEditType"]
+    lsp_service_name = data["lspServiceName"]
 
-    return generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, prev_edit_type)
+    return generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, lsp_service_name)
 
 
     

@@ -1,19 +1,66 @@
+import math
 from .rich_semantic import finer_grain_window
 
-def get_sliding_window_for_files(files: list[tuple[str, str]]):
+def get_sliding_window_for_lsp_locations(files: dict, lsp_locations: list[dict]):
+    """
+    Get sliding windows for lsp locations
+    
+    Args:
+        files: dict, of the form:
+        {
+            "file_path": list[str], each str is a line of code
+        }
+        lsp_locations: list[dict], each dict is a lsp location, of the form:
+        {
+            "file_path": str,
+            "start": {
+                "line": int,
+                "col": int
+            },
+            "end": {
+                "line": int,
+                "col": int
+            }
+        }
+    
+    Returns:
+        sliding_windows: list of dict:
+            {
+                "code_window": list[str],
+                "file_path": file,
+                "start_line_idx": int,
+            }
+    """
+    sliding_windows = []
+    for location in lsp_locations:
+        file_path = location["file_path"]
+        start_line_idx = location["start"]["line"]
+        end_line_idx = location["end"]["line"]
+        location_range = end_line_idx - start_line_idx + 1
+        multiple = math.ceil(location_range / 8)
+        prefix_context_length = (8*multiple  - location_range) // 2
+        suffix_context_length = 8*multiple - location_range - prefix_context_length
+
+        window_start_line_idx = max(0, start_line_idx - prefix_context_length)
+        window_end_line_idx = min(len(files[file_path]) - 1, end_line_idx + suffix_context_length) + 1
+        for i in range(window_start_line_idx, window_end_line_idx, 8):
+            code_window = files[file_path][i:i+8]
+            sliding_windows.append({
+                "code_window": code_window,
+                "file_path": file_path,
+                "start_line_idx": i,
+            })
+    return sliding_windows
+
+def get_sliding_window_for_files(files: dict):
     """
     Split code windows into sliding windows
 
     Args:
-        files: {
-                'file_name': [
-                    {
-                        'code_window_start_line': 0,
-                        'code_window': [],    // code window itself
-                    }
-                ],
-                ...
-            }
+        files: dict, of the form:
+        {
+            "file_path": list[str], each str is a line of code
+        }
     
     Returns:
         sliding_windows: list of dict:
@@ -25,15 +72,14 @@ def get_sliding_window_for_files(files: list[tuple[str, str]]):
     """
     max_sliding_size = 8
     sliding_windows = []
-    for file_path, code_windows in files.items():
-        for code_window in code_windows:
-            for i in range(0, len(code_window["code_window"], max_sliding_size)):
-                sliding_window = {
-                    "code_window": code_window["code_window"][i:i+max_sliding_size],
-                    "file_path": file_path,
-                    "start_line_idx": code_window["code_window_start_line"] + i,
-                }
-                sliding_windows.append(sliding_window)
+    for file_path, file_content in files.items():
+        for i in range(0, len(file_content), max_sliding_size):
+            sliding_window = {
+                "code_window": file_content[i:i+max_sliding_size],
+                "file_path": file_path,
+                "start_line_idx": i,
+            }
+            sliding_windows.append(sliding_window)
     return sliding_windows
 
 def construct_prev_edit_hunk(edit: dict, lang: str):
