@@ -115,17 +115,19 @@ def locator_interface(data):
         
     Returns:
         {
-            'file_name': [
-                {
-                    'code_window_start_line': 0,
-                    'inline_labels': list[str],
-                    'inter_labels': list[str],
-                    'inline_confidences': list[str],
-                    'inter_confidences': list[str],
-                    'service_name': str, in ["def&ref", "clone", "diagnose", "normal"]
-                }
-            ],
-            ...
+            files: {
+                'file_name': [
+                    {
+                        'code_window_start_line': 0,
+                        'inline_labels': list[str],
+                        'inter_labels': list[str],
+                        'inline_confidences': list[str],
+                        'inter_confidences': list[str],
+                        'service_name': str, in ["def&ref", "clone", "diagnose", "normal"]
+                    }
+                ],
+                ...
+            }
         }
     '''
     if "language" not in data: 
