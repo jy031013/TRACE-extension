@@ -6,7 +6,12 @@
 		{
 			"type": "npm",
 			"script": "watch",
-			"problemMatcher": "$tsc-watch",
+			"problemMatcher": [{
+				"base": "$tsc-watch",
+    			"applyTo": "allDocuments",
+				"fileLocation": ["relative", "${workspaceFolder}/extension"],
+			}],
+				
 			"isBackground": true,
 			"path": "extension",
 			"presentation": {
