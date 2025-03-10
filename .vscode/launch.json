@@ -5,6 +5,71 @@
 {
 	"version": "0.2.0",
 	"configurations": [
+		// NOTE before running the example configs, please run the debug config first to `npm: watch` the changes
+		{
+			"name": "Run Example 1: stable-diffusion-webui",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				// "--disable-extensions",
+				// "--remote=wsl+Ubuntu-22.04",
+				"${workspaceFolder}/../navedit-extension-test-folder/stable-diffusion-webui"
+			],
+			"outFiles": [
+				"${workspaceFolder}/extension/out/**/*.js"
+			],
+			"cwd": "${workspaceFolder}/extension/",
+			"preLaunchTask": "reset-example-1"
+		},
+		{
+			"name": "Run Example 2: models",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				// "--disable-extensions",
+				// "--remote=wsl+Ubuntu-22.04"
+				"${workspaceFolder}/../navedit-extension-test-folder/models"
+			],
+			"outFiles": [
+				"${workspaceFolder}/extension/out/**/*.js"
+			],
+			"cwd": "${workspaceFolder}/extension/",
+			"preLaunchTask": "reset-example-2"
+		},
+		{
+			"name": "Run Example 3: keras",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				// "--disable-extensions",
+				// "--remote=wsl+Ubuntu-22.04"
+				"${workspaceFolder}/../navedit-extension-test-folder/keras"
+			],
+			"outFiles": [
+				"${workspaceFolder}/extension/out/**/*.js"
+			],
+			"cwd": "${workspaceFolder}/extension/",
+			"preLaunchTask": "reset-example-3"
+		},
+		{
+			"name": "Run Example 4: scikit-learn",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				// "--disable-extensions",
+				// "--remote=wsl+Ubuntu-22.04"
+				"${workspaceFolder}/../navedit-extension-test-folder/scikit-learn"
+			],
+			"outFiles": [
+				"${workspaceFolder}/extension/out/**/*.js"
+			],
+			"cwd": "${workspaceFolder}/extension/",
+			"preLaunchTask": "reset-example-4"
+		},
 		{
 			"name": "Run Extension",
 			"type": "extensionHost",

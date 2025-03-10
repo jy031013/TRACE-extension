@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant } from '../utils/file-utils';
+import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant, readMostRelatedFiles } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
 import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestLocationByNavEdit } from './query-processes';
@@ -54,18 +54,7 @@ async function predictLocationByNavEdit() {
 
         statusBarItem.setStatusLoadingFiles();
         
-        // Glob starting from 2-level parent directory, but not higher that the workspace directory
-        const workspaceRoot = getRootPath();
-        let globFromPath = vscode.window.activeTextEditor?.document.uri.fsPath;
-        if (globFromPath !== undefined) {
-            globFromPath = path.dirname(path.dirname(globFromPath));
-        }
-        if (globFromPath === undefined || !isDescendant(workspaceRoot, globFromPath)) {
-            globFromPath = workspaceRoot;
-        }
-
-        const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
-
+        const fileContents = await readMostRelatedFiles();
         const currentFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
 
         // Split the file content into lines

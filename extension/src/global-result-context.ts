@@ -102,13 +102,28 @@ class NavEditLocationResult {
         const highlightedLocations: HighlightedLocation[] = Array.from(locations.entries()).reduce((acc, [i, [uri, locs]]) => {
             locs.forEach(loc => {
                 const editType = loc.inline_labels.every((loc) => loc === 'add') ? 'add' : 'replace';
+                    
+                // push the first continuous non-keep sequence of lines
+                let startLine = loc.code_window_start_line;
+                let endLine = startLine;
+                for (let i = 0; i < loc.inline_labels.length; i++) {
+                    if (loc.inline_labels[i] !== '<keep>') {
+                        endLine = startLine + i;
+                    } else {
+                        if (startLine !== endLine) {
+                            break;
+                        }
+                        startLine = startLine + i + 1;
+                    }
+                }
+
                 acc.push({
                     location: new vscode.Location(
                         uri,
                         new vscode.Range(
-                            loc.code_window_start_line,
+                            startLine,
                             0,
-                            loc.code_window_start_line + loc.inline_labels.length,
+                            endLine,
                             Number.MAX_SAFE_INTEGER
                         )
                     ),
@@ -119,13 +134,15 @@ class NavEditLocationResult {
             return acc;
         }, [] as HighlightedLocation[]);
         
+        // FIXME This type of decoration is unused. The decoration is delegated to a traditional LocationResult
         this.decoration = new LocationResultDecoration({
             type: 'plain-location',
-            locations: highlightedLocations
+            locations: []
         });
 
-        this.convertHighlightedLocationsToTraditionalLocation(highlightedLocations)
-            .then(convertedLocations => globalLocationViewManager.reloadLocations(Array.from(convertedLocations)));
+        // FIXME This has no effect on the tree view, and is delegated to a traditional LocationResult
+        // this.convertHighlightedLocationsToTraditionalLocation(highlightedLocations)
+        //     .then(convertedLocations => globalLocationViewManager.reloadLocations(Array.from(convertedLocations)));
     }
 
     /** Indexed as [URI String] -> [Location Results] */
@@ -137,20 +154,22 @@ class NavEditLocationResult {
         this.decoration.dispose();
         // TODO there could be multiple sets of locations existing at the same time
         // use a manager class for each
-        globalLocationViewManager.reloadLocations([]);
+
+        // FIXME This has no effect on the tree view, and is delegated to a traditional LocationResult
+        // globalLocationViewManager.reloadLocations([]);
     }
 
     private async convertHighlightedLocationsToTraditionalLocation(highlightedLocations: HighlightedLocation[]): Promise<LocatorLocation[]> {
         const locations: LocatorLocation[] = await Promise.all(highlightedLocations.map(async (hl) => {
             const uri = hl.location.uri.fsPath;
             const startLine = hl.location.range.start.line;
-            const endLine = hl.location.range.end.line;
+            const endLine = hl.location.range.end.line - (hl.location.range.end.character === 0 ? 1 : 0);
             const editType = hl.type === 'add' ? 'add' : 'replace';
 
             // TODO should we let the tree view compute the text?
             return {
                 targetFilePath: uri,
-                atLines: [startLine, endLine],
+                atLines: [startLine, endLine],  // FIXME this is so unstable using only the first and last line
                 editType,
                 lineBreak: defaultLineBreak,
                 lineInfo: {
@@ -376,14 +395,16 @@ class QueryContext extends DisposableComponent {
     }
 
     updateNavEditLocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
-        // filter out non-keep inline label confidence < 90%, THIS IS IN-PLACE!
+        const confidenceThreshold = 0.0;
+
+        // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {
             const fileLocations = locationsByFile[filePath];
             locationsByFile[filePath] = fileLocations.filter((loc) => {
                 const inlineLabels = loc.inline_labels;
                 const confidence = loc.inline_confidences;
                 return inlineLabels.every((label, index) => {
-                    if (label !== '<keep>' && confidence[index] < 0.9) {
+                    if (label !== '<keep>' && confidence[index] < confidenceThreshold) {
                         return false;
                     }
                     return true;
@@ -429,12 +450,12 @@ class QueryContext extends DisposableComponent {
                 }
             }
 
-            // deduplication
+            // deduplication, remove all precedent overlapping locations
             const uniqueLocations: LocatorLocation[] = [];
             for (const loc of convertedLocations) {
                 if (!uniqueLocations.some(
                     (l) => l.targetFilePath === loc.targetFilePath
-                        && l.atLines[0] === loc.atLines[0]
+                        && (l.atLines[0] <= loc.atLines[loc.atLines.length - 1] && l.atLines[l.atLines.length - 1] >= loc.atLines[0])
                 )) {
                     uniqueLocations.push(loc);
                 }
@@ -443,6 +464,7 @@ class QueryContext extends DisposableComponent {
             this.updateLocations(uniqueLocations);
         })();
         
+        // On the other hand, update the real location
         this.clearResults();
         const locations: [vscode.Uri, ResponseEditLocationWithLabels[]][] = [];
         for (const filePath in locationsByFile) {

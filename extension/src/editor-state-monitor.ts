@@ -4,11 +4,12 @@ import { statusBarItem } from './ui/progress-indicator';
 import { Change, diffLines } from 'diff';
 import { RequestEdit, EditWithTimestamp, FileAsHunks } from "./utils/base-types";
 import { DisposableComponent } from "./utils/base-component";
-import { getOpenedFilePaths, getOpenedFileUris, getStagedFile } from './utils/file-utils';
+import { getOpenedFilePaths, getOpenedFileUris, getStagedFile, readMostRelatedFiles } from './utils/file-utils';
 import { globalQueryContext } from './global-result-context';
 import { extractBlock, splitLines } from './utils/utils';
 import { PreJudgedLspType, RequestLspFoundLocation } from './services/backend-requests';
 import { CachedRenameOperation } from './services/query-processes';
+import { search } from 'fast-fuzzy';
 
 class WorkspaceEditInfoCollector implements vscode.Disposable {
     private editWatcher: EditWatcher;
@@ -22,12 +23,12 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
     }
 
     watch(uri: vscode.Uri) {
-        console.log(`√ InfoCollector watching ${uri.toString()}`);
+        // console.log(`√ InfoCollector watching ${uri.toString()}`);
         this.editWatcher.watch(uri);
     }
     
     unwatch(uri: vscode.Uri) {
-        console.log(`× InfoCollector unatching ${uri.toString()}`);
+        // console.log(`× InfoCollector unwatching ${uri.toString()}`);
         this.editWatcher.unwatch(uri);
     }
 
@@ -50,30 +51,46 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
     }
 
     /** We often use this on BEFORE-EDIT VERSION to determine what locations should be changed together */
-    getAllClones(snippet: string, originalStartLine: number) {
+    async getAllClones(snippet: string, originalStartLine: number) {
         const allClones: Map<string, vscode.Location[]> = new Map();
 
         if (snippet.length === 0) {
             return allClones;
         }
 
-        const allDocuments = vscode.workspace.textDocuments;
-        for (const doc of allDocuments) {
-            const uri = doc.uri;
-            const text = doc.getText();
-            if (text.includes(snippet)) {
-                const locations = [];
-                let startPos = 0;
-                while (startPos < text.length) {
-                    const index = text.indexOf(snippet, startPos);
-                    if (index === -1) break;
-                    const foundLine = doc.positionAt(index).line;
-                    if (foundLine !== originalStartLine) {
-                        locations.push(new vscode.Location(uri, new vscode.Range(doc.positionAt(index), doc.positionAt(index + snippet.length))));
-                    }
-                    startPos = index + Math.max(snippet.length, 1);
-                }
-                allClones.set(uri.toString(), locations);
+        const allDocuments = await readMostRelatedFiles();
+        // Use fast-fuzzy for fuzzy matching clones
+
+        for (const [filePath, content] of allDocuments) {
+            const uri = vscode.Uri.file(filePath);
+            const lines = splitLines(content, false);
+            
+            // Search through each line of the file
+            const matches = search(snippet, lines, {
+                returnMatchData: true,
+                threshold: 0.8 // Adjust threshold as needed (0.0 to 1.0)
+            });
+
+            const locations: vscode.Location[] = [];
+            
+            for (const match of matches) {
+            const lineIndex = lines.indexOf(match.item);
+            if (lineIndex !== originalStartLine) { // Skip the original line
+                const foundPos = new vscode.Position(lineIndex, 0);
+                locations.push(
+                new vscode.Location(
+                    uri,
+                    new vscode.Range(
+                    foundPos,
+                    new vscode.Position(lineIndex, match.item.length)
+                    )
+                )
+                );
+            }
+            }
+
+            if (locations.length > 0) {
+            allClones.set(uri.toString(), locations);
             }
         }
         return allClones;
@@ -123,7 +140,8 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                             end: {
                                 line: location.range.end.line,
                                 col: location.range.end.character
-                            }
+                            },
+                            type: infoType
                         };
                         lspFoundLocations[infoType].push(foundLocation);
                     }
@@ -135,9 +153,9 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
         const edit = editWithSyntaxInfo.edit;
 
         const blockWithContext = [edit.codeAbove, edit.rmText, edit.codeBelow].flat();
-        const targetBlockToFindClone = extractBlock(blockWithContext, edit.line - 1);
+        const targetBlockToFindClone = extractBlock(blockWithContext);
 
-        const foundClones = this.getAllClones(targetBlockToFindClone.join(''), edit.line);
+        const foundClones = await this.getAllClones(targetBlockToFindClone.join(''), edit.line);
         for (const [uriString, locations] of foundClones) {
             const uri = vscode.Uri.parse(uriString);
             for (const location of locations) {
@@ -150,7 +168,8 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                     end: {
                         line: location.range.end.line,
                         col: location.range.end.character
-                    }
+                    },
+                    type: 'clone'
                 };
                 lspFoundLocations.clone.push(foundLocation);
             }
@@ -159,13 +178,24 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
         return lspFoundLocations;
     }
 
-    async exportLspFoundLocationsForDiagnose(): Promise<RequestLspFoundLocation[]> {
+    async exportLspFoundLocationsForDiagnose(sinceTimestamp?: number, onlyOnFile?: string): Promise<RequestLspFoundLocation[]> {
         const lspFoundLocations: RequestLspFoundLocation[] = [];
 
         // Process real-time diagnostic
-        const allDiagnosticInfo = this.getAllDiagnosticInfo();
+        const latestAllDiagnosticInfo = this.getAllDiagnosticInfo();
 
-        for (const [uri, diagnostics] of allDiagnosticInfo) {
+        let diagnosticInfo = sinceTimestamp !== undefined
+            ? this.editWatcher.findNewDiagnoseInfo(
+                    sinceTimestamp,
+                    Date.now(),
+                    latestAllDiagnosticInfo
+                )
+            : latestAllDiagnosticInfo;
+
+        for (const [uri, diagnostics] of diagnosticInfo) {
+            if (onlyOnFile && uri.fsPath !== onlyOnFile) {
+                continue;
+            }
             for (const diagnostic of diagnostics) {
                 const foundLocation: RequestLspFoundLocation = {
                     file_path: uri.fsPath,
@@ -176,7 +206,8 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                     end: {
                         line: diagnostic.range.end.line,
                         col: diagnostic.range.end.character
-                    }
+                    },
+                    type: 'diagnose'
                 };
                 lspFoundLocations.push(foundLocation);
             }
@@ -235,11 +266,13 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
             ].flat());
         }
 
-        const lspFoundLocationsForDiagnose = await globalEditInfoCollector.exportLspFoundLocationsForDiagnose();
-        if (lspFoundLocationsForDiagnose.length > 0 && lspType === 'normal') {
-            lspType = 'diagnose';
-        }
-        fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
+        // FIXME diagnose is not enabled now
+
+        // const lspFoundLocationsForDiagnose = await globalEditInfoCollector.exportLspFoundLocationsForDiagnose();
+        // if (lspFoundLocationsForDiagnose.length > 0 && lspType === 'normal') {
+        //     lspType = 'diagnose';
+        // }
+        // fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
 
         const requestEdits: RequestEdit[] = currentPrevEditsInfo.map(({ edit: editWithTimestamp }) => convertToRequestEdit(editWithTimestamp));
 
@@ -256,6 +289,7 @@ export type EditSyntaxInfo = {
     def: [SyntaxInfoEntryHeader, DefInfo][];
     ref: [SyntaxInfoEntryHeader, RefInfo][];
     rename: [SyntaxInfoEntryHeader, RenameInfo][];
+    diagnostics?: DiagnosticInfo;
 }
 
 export type EditWithSyntaxInfo = {
@@ -311,9 +345,6 @@ class EditWatcher implements vscode.Disposable {
     async collectEditsWithMatchedSyntaxInfo(withSyntaxInfo: boolean = true, lastOnly: boolean = false): Promise<EditWithSyntaxInfo[]> {
         await this.editReducer.updateEdits();
         let edits = await this.editReducer.getEditList();
-        if (lastOnly) {
-            edits = edits.slice(-1);
-        }
 
         const defInfoMap = this.languageSyntaxRecorder.getDefInfoMap();
         const refInfoMap = this.languageSyntaxRecorder.getRefInfoMap();
@@ -351,7 +382,7 @@ class EditWatcher implements vscode.Disposable {
             };
 
             if (lastOnly && changes.length > 0) {
-                changes.splice(-1, 1, collectMatchedSyntaxInfo(changes[0].edit));
+                changes.splice(-1, 1, collectMatchedSyntaxInfo(changes[changes.length - 1].edit));
             } else {
                 changes = changes.map(change => collectMatchedSyntaxInfo(change.edit));
             }
@@ -370,18 +401,77 @@ class EditWatcher implements vscode.Disposable {
         if (!lineEntry) return matchedRecords;
 
         for (const recordEntrySet of lineEntry.values()) {
-            // Maybe we needn't sort here? ... If we assume, by nature, that the recordEntrySet is in insertion order
-            const descTimeRecords = Array.from(recordEntrySet).sort((a, b) => b[0].timestamp - a[0].timestamp);
+            // Find first record that is right after the edit timestamp
+            // If we can't find, we use the latest one
 
-            for (const [header, record] of descTimeRecords) {
-                if (header.identifierRange.start.line === line && header.lineSnapshot === lineText && header.timestamp <= timestamp) {
-                    matchedRecords.push([header, record]);
-                    continue;
+            // Maybe we needn't sort here? ... If we assume, by nature, that the recordEntrySet is in insertion order
+            const ascTimeRecords = Array.from(recordEntrySet).sort((a, b) => a[0].timestamp - b[0].timestamp);
+
+            let latestMatchedRecord: [SyntaxInfoEntryHeader, T] | undefined;
+            for (const [header, record] of ascTimeRecords) {
+                if (header.identifierRange.start.line === line && header.lineSnapshot === lineText) {
+                    latestMatchedRecord = [header, record];
+                    if (header.timestamp >= timestamp) {
+                        break;
+                    }
                 }
+            }
+
+            if (latestMatchedRecord) {
+                matchedRecords.push(latestMatchedRecord);
             }
         }
 
         return matchedRecords;
+    }
+
+    findNewDiagnoseInfo(timestamp1: number, timestamp2: number, useLatestDiagnostic: [vscode.Uri, vscode.Diagnostic[]][] | undefined): [vscode.Uri, vscode.Diagnostic[]][] {
+        const map = this.languageSyntaxRecorder.getDiagnosticTimeMap();
+        
+        // Find first record that is right after the timestamp
+        // If we can't find, we use the latest one
+        let diagnostic1: [vscode.Uri, vscode.Diagnostic[]][] = [];
+        for (const [timestamp, info] of map) {
+            diagnostic1 = info.allDiagnostics;
+            if (timestamp >= timestamp1) {
+                break;
+            }
+        }
+        
+        let diagnostic2: [vscode.Uri, vscode.Diagnostic[]][] = [];
+        if (useLatestDiagnostic) {
+            diagnostic2 = useLatestDiagnostic;
+        } else {
+            for (const [timestamp, info] of map) {
+                diagnostic2 = info.allDiagnostics;
+                if (timestamp >= timestamp2) {
+                    break;
+                }
+            }
+        }
+
+        // Extract diagnostic2 - diagnostic1 by uri
+        const matchedRecords: [vscode.Uri, vscode.Diagnostic[]][] = [];
+        for (const [uri, diags] of diagnostic2) {
+            const diags1 = diagnostic1.find((_uri, _diags) => _uri.toString() === uri.toString());
+
+            if (!diags1) {
+                matchedRecords.push([uri, diags]);
+            } else {
+                const newDiags = diags.filter(diag => !diags1[1].some(
+                    _diag => this.diagnosticEntryEqual(_diag, diag)
+                ));
+                if (newDiags.length > 0) {
+                    matchedRecords.push([uri, newDiags]);
+                }
+            }
+        }
+        
+        return matchedRecords;
+    }
+
+    private diagnosticEntryEqual(diag1: vscode.Diagnostic, diag2: vscode.Diagnostic) {
+        return diag1.message === diag2.message && diag1.range.isEqual(diag2.range) && diag1.severity === diag2.severity;
     }
 }
 
@@ -423,6 +513,10 @@ interface RefInfo {
 
 interface RenameInfo {
     allRenameRanges: CodeRangesInFile[]
+}
+
+interface DiagnosticInfo {
+    allDiagnostics: [vscode.Uri, vscode.Diagnostic[]][];
 }
 
 // This is substituted with the type [Uri, Diagnose][] in VS Code API 
@@ -524,6 +618,8 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
     private refInfoMap: SyntaxInfoMap<RefInfo>;
     /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
     private renameInfoMap: SyntaxInfoMap<RenameInfo>;
+    /** Entire diagnostic info at each timestamp */
+    private diagnosticInfoMap: Map<number, DiagnosticInfo>;
 
     private _watchSelectionChangeDisposable: vscode.Disposable | undefined;
 
@@ -532,6 +628,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         this.defInfoMap = new SyntaxInfoMap<DefInfo>();
         this.refInfoMap = new SyntaxInfoMap<RefInfo>();
         this.renameInfoMap = new SyntaxInfoMap<RenameInfo>();
+        this.diagnosticInfoMap = new Map<number, DiagnosticInfo>();
 
         this._watchSelectionChangeDisposable =
             vscode.window.onDidChangeTextEditorSelection(async e => {
@@ -576,6 +673,11 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         return this.renameInfoMap;
     }
 
+    /** Entire diagnostic info at each timestamp */
+    getDiagnosticTimeMap() {
+        return this.diagnosticInfoMap;
+    }
+
     private async fetchSyntaxInfo(doc: vscode.TextDocument, uri: vscode.Uri, selection: vscode.Selection) {
         const uriString = uri.toString();
 
@@ -591,36 +693,55 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
             timestamp: Date.now()
         };
 
-        const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeRangeInFile[];
-        if (def.length > 0) {
-            const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
+        // do each type of collection in parallel
 
-            const entry = {
-                allDefs: fullDefRanges
-            } as DefInfo;
-            this.defInfoMap.addRecord(uriString, line, header, entry);
-        }
-        
-        const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeRangeInFile[];
-        if (ref.length > 0) {
-            const entry = {
-                allRefs: ref
-            } as RefInfo;
-            this.refInfoMap.addRecord(uriString, line, header, entry);
-        }
-  
-        // Rename provider may throw an error from the promise
-        try {
-            const rename = await this.debounceRenameQuery(uri, identifierRange.start);
-            if (rename && Array.isArray(rename) && rename.length > 0) {
+        (async () => {
+            const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+            if (def.length > 0) {
+                const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
+
                 const entry = {
-                    allRenameRanges: rename as CodeRangesInFile[]
-                } as RenameInfo;
-                this.renameInfoMap.addRecord(uriString, line, header, entry);
+                    allDefs: fullDefRanges
+                } as DefInfo;
+                this.defInfoMap.addRecord(uriString, line, header, entry);
             }
-        } catch (err) {
-            console.debug('Failed to find rename locations:', err instanceof Error ? err.message : String(err));
-        }
+        })();
+        
+        
+        (async () => {
+            const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+            if (ref.length > 0) {
+                const entry = {
+                    allRefs: ref
+                } as RefInfo;
+                this.refInfoMap.addRecord(uriString, line, header, entry);
+            }
+        })();
+  
+        (async () => {
+            // Rename provider may throw an error from the promise
+            try {
+                const rename = await this.debounceRenameQuery(uri, identifierRange.start);
+                if (rename && Array.isArray(rename) && rename.length > 0) {
+                    const entry = {
+                        allRenameRanges: rename as CodeRangesInFile[]
+                    } as RenameInfo;
+                    this.renameInfoMap.addRecord(uriString, line, header, entry);
+                }
+            } catch (err) {
+                console.debug('Failed to find rename locations:', err instanceof Error ? err.message : String(err));
+            }
+        })();
+
+        (async () => {
+            const diagnostics = await this.debounceDiagnosticQuery(uri);
+            if (diagnostics.length > 0) {
+                const entry = {
+                    allDiagnostics: diagnostics[1]
+                } as DiagnosticInfo;
+                this.diagnosticInfoMap.set(diagnostics[0], entry);
+            }
+        })();
     }
 
     private async expandToFullDefinitionRanges(identifier: string, ranges: CodeRangeInFile[]): Promise<CodeRangeInFile[]> {
@@ -643,7 +764,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
             }
             const matchedChild = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfo.children, identifier, range);
             if (matchedChild) {
-                return matchedChild;
+                return matchedChild; 
             }
         }
         return undefined;
@@ -654,13 +775,15 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         return symbolInfo;
     }
 
+    private static readonly debounceTimeout = 200;
+
     private debounceDefQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
         return await vscode.commands.executeCommand('vscode.executeDefinitionProvider', uri, position);
-    }, 200);
+    }, LanguageSyntaxRecorder.debounceTimeout);
 
     private debounceRefQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
         return await vscode.commands.executeCommand('vscode.executeReferenceProvider', uri, position);
-    }, 200);
+    }, LanguageSyntaxRecorder.debounceTimeout);
 
     private debounceRenameQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
         try {
@@ -669,7 +792,13 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
             // console.debug('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
             return undefined;
         } 
-    }, 200);
+    }, LanguageSyntaxRecorder.debounceTimeout);
+
+    private debounceDiagnosticQuery = debounced(async (uri: vscode.Uri): Promise<[number, [vscode.Uri, vscode.Diagnostic[]][]]> => {
+        const timestamp = Date.now();
+        const diagnostics = vscode.languages.getDiagnostics();
+        return [timestamp, diagnostics];
+    }, LanguageSyntaxRecorder.debounceTimeout);
 }
 
 // class EditRecorder implements vscode.Disposable {

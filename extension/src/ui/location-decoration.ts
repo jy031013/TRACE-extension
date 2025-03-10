@@ -112,7 +112,7 @@ export class LocationResultDecoration {
 				endLine = limitNum(endLine, 0, document.lineCount - 1);
 				
 				const startPos = editor.document.lineAt(startLine).range.start;
-				const endPos = editor.document.lineAt(endLine).range.end;
+				const endPos = editor.document.lineAt(endLine).range.start;		// avoid overflowing when switching editor and changing the number of characters in the line
 				const range = new vscode.Range(startPos, endPos);
 		
 				// Create decoration

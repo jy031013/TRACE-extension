@@ -151,7 +151,7 @@ async function readFilesDefaultCollected(basePath: string | undefined = undefine
 
     // Use glob to exclude certain files and return a list of all valid files
     
-    const absolutePathList = await globFiles(rootPath);
+    const absolutePathList = await globFiles(rootPath, ['**/*.py']);
 
     const fileGetter = useSnapshot
         ? async (filePath: string) => {
@@ -320,6 +320,39 @@ function replaceCurrentSnapshot(fileList: [string, string | undefined][]) {
 export function isDescendant(parent_path: string, child_path: string) {
     const relative = path.relative(parent_path, child_path);
     return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+export async function readMostRelatedFiles() {
+    // Glob starting from 3-level parent directory, but not higher that the workspace directory
+    const workspaceRoot = getRootPath();
+    let globFromPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    if (globFromPath !== undefined) {
+        for (let i = 0; i < 3; ++i) {
+            globFromPath = path.dirname(globFromPath);
+        }
+    }
+    if (globFromPath === undefined || !isDescendant(workspaceRoot, globFromPath)) {
+        globFromPath = workspaceRoot;
+    }
+
+    // const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
+    
+    // DEBUG
+    const fileContents: [string, string][] = [];
+    const specialRelativePaths = [
+        'modules',
+        'extensions-builtin/ScuNET/scripts',
+        'extensions-builtin/SwinIR/scripts',
+        'official/nlp/bert',
+        'keras/layers',
+        'sklearn/tree'
+    ];
+    for (const p of specialRelativePaths) {
+        const extraFileContents = await readFilesDefaultCollected(path.join(workspaceRoot, p));
+        fileContents.push(...extraFileContents);
+    }
+
+    return fileContents;
 }
 
 export {

@@ -6,7 +6,7 @@ import { RequestEdit } from '../utils/base-types';
 export type PreJudgedLspType = 'def&ref' | 'clone' | 'diagnose' | 'normal';
 export type ResponseInvokerLspType = 'def&ref' | 'clone' | 'rename' | 'normal';
 
-export type RequestLspFoundLocation = {
+export interface RequestLspFoundLocation {
     file_path: string;
     start: {
         line: number;
@@ -16,6 +16,8 @@ export type RequestLspFoundLocation = {
         line: number;
         col: number;
     };
+    type?: string;
+    description?: string;
 }
 
 export type ResponseEditLocationWithLabels = {

@@ -1,0 +1,410 @@
+openapi: 3.0.0
+info:
+  title: Backend API for TRACE
+  description: The experimental backend API specification for TRACE backend, which is usually front-ended by our VS Code extension.
+  version: 0.1.30
+
+servers:
+  - url: http://localhost:5003
+    description: Local backend server with a desired port
+
+paths:
+  '/predict/invoker':
+    post:
+      summary: Invoker
+      description: |
+        Judge the type of referenceable information of next edit.
+
+        For previous edits, this model takes the latest one and then compares
+        it with earlier ones to determine the behavior (called an edit composition type) of the last edit, among
+        `rename`, `def&ref`, `clone` and `normal`.
+
+        If the last edit is a normal edit, this function will pass it to the locator and return predicted edit labels.
+        Otherwise, it will send the edit composition type to the front end.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/locatorRequest'
+            example:
+              {
+                "language": "python",
+                "commitMsg": "\"de\" is not defined",
+                "prevEdits": [
+                  {
+                    "path": "apple.py",
+                    "line": 0,
+                    "rmLine": 0,
+                    "rmText": [],
+                    "addLine": 2,
+                    "addText": ["de my_func(a):\n", "\treturn a + 1\n"],
+                    "codeAbove": [],
+                    "codeBelow": []
+                  }
+                ],
+                "files": {
+                  "apple.py": [
+                    "de my_func(a):\n",
+                    "\treturn a + 1\n"
+                  ]
+                },
+                "lspServiceName": "diagnose",
+                "lspFoundLocations": [
+                  {
+                    "file_path": "apple.py",
+                    "start": {
+                      "line": 0,
+                      "col": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "col": 2
+                    }
+                  }
+                ]
+              }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/invokerResponse'
+  '/predict/locator':
+    post:
+      summary: Locator
+      description: Predict potential locations of next edit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/locatorRequest'
+            example:
+              {
+                "language": "python",
+                "commitMsg": "\"de\" is not defined",
+                "prevEdits": [
+                  {
+                    "path": "apple.py",
+                    "line": 0,
+                    "rmLine": 0,
+                    "rmText": [],
+                    "addLine": 2,
+                    "addText": ["de my_func(a):\n", "\treturn a + 1\n"],
+                    "codeAbove": [],
+                    "codeBelow": []
+                  }
+                ],
+                "files": {
+                  "apple.py": [
+                    "de my_func(a):\n",
+                    "\treturn a + 1\n"
+                  ]
+                },
+                "lspServiceName": "diagnose",
+                "lspFoundLocations": [
+                  {
+                    "file_path": "apple.py",
+                    "start": {
+                      "line": 0,
+                      "col": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "col": 2
+                    }
+                  }
+                ]
+              }
+      responses:
+        '200':
+          description: Successful location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/locatorResponse'
+  '/predict/generator':
+    post:
+      summary: Generator
+      description: Predict lines edition based on adding/deleting labels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/generatorRequest'
+            example:
+                language: python
+                filePath: apple.py
+                atLine: "0"
+                codeWindow: 
+                  - "de my_func(a):\n"
+                  - "\treturn a + 1\n"
+                interLabels: 
+                  - "<null>"
+                  - "<null>"
+                  - "<null>"
+                inlineLabels:
+                  - "<replace>"
+                  - "<keep>"
+                commitMessage: "\"de\" is not defined"
+                prevEdits:
+                  - path: apple.py
+                line: 0
+                rmLine: 0
+                rmText: []
+                addLine: 2
+                addText:
+                  - "de my_func(a):\n"
+                  - "\treturn a + 1\n"
+                codeAbove: []
+                codeBelow: []
+                prevEditType: normal
+      responses:
+        '200':
+          description: Successful generation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generatorResponse'
+              example:
+                [
+                  "def f(a):\n\treturn a + 1\n",
+                  "def de_func(a):\n\treturn a + 1\n",
+                  "def my_func(a):\n\treturn a + 1\n",
+                  "def de(a):\n\treturn a + 1\n",
+                  "def f_func(a):\n\treturn a + 1\n\ndef f_func(a):\n\treturn a + 1\n",
+                  "def f_func(a):\n\treturn a + 1\n",
+                  "def my_func(a):\n\treturn a + 1\n\ndef my_func(a):\n\treturn a + 1\n",
+                  "def d_func(a):\n\treturn a + 1\n",
+                  "def d_func(a):\n\treturn a + 1\n\ndef f_func(a):\n\treturn a + 1\n",
+                  "def f(a):\n\treturn a + 1\n\ndef f(a):\n\treturn a + 1\n"
+                ]
+
+components:
+  schemas:
+    singlePrevEdit:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Path of the file
+        line:
+          type: integer
+          description: Line number of the edit
+        rmLine:
+          type: string
+          description: Number of removed Lines
+        rmText:
+          type: array
+          items:
+            type: string
+          description: Removed lines
+        addLine:
+          type: string
+          description: Number of added lines
+        addText:
+          type: array
+          items:
+            type: string
+          description: Added lines
+        codeAbove:
+          type: array
+          items:
+            type: string
+          description: Several lines of code above the edit location
+        codeBelow:
+          type: array
+          items:
+            type: string
+          description: Several lines of code below the edit location
+    hunkToBeEditedWithLineLabels:
+      type: object
+      properties:
+        hunk:
+          type: array
+          items:
+            type: string
+          description: Lines of the hunk
+        labels:
+          type: array
+          items:
+            type: string
+          description: Lines of the hunk
+    invokerRenameInfo:
+      type: object
+    invokerDefRefInfo:
+      type: object
+    invokerCloneInfo:
+      type: object
+    invokerNormalInfo:
+      type: object
+    invokerInfo:
+      oneOf:
+        - $ref: '#/components/schemas/invokerRenameInfo'
+        - $ref: '#/components/schemas/invokerDefRefInfo'
+        - $ref: '#/components/schemas/invokerCloneInfo'
+    invokerResponse:
+      oneOf:
+        - type: object
+          properties:
+            type:
+              type: string
+              description: Type of the result
+            info:
+              $ref: '#/components/schemas/invokerInfo'
+        - $ref: '#/components/schemas/locatorResponse'
+    singleLocationWithEditLabels:
+      type: object
+      properties:
+        code_window_start_line:
+          type: number
+          description: Starting line number of the code window surrounding the edit
+        inline_labels:
+          type: array
+          items:
+            type: string
+          description: Inline labels for each line
+        inline_confidences:
+          type: array
+          items:
+            type: number
+          description: Confidence of the inline labels
+        inter_labels:
+          type: array
+          items:
+            type: string
+          description: Inter-line labels before, after and between lines
+        inter_confidences:
+          type: array
+          items:
+            type: number
+          description: Confidence of the intermediate labels
+        service_name:
+          type: string
+          description: Name of the predicted edit composition type before querying locator
+          enum:
+            - def&ref
+            - clone
+            - diagnose
+            - normal
+    lspDiagnoseLocation:
+      type: object
+      properties:
+        file_path:
+          type: string
+        start:
+          type: object
+          properties:
+            line:
+              type: number
+            col:
+              type: number
+        end:
+          type: object
+          properties:
+            line:
+              type: number
+            col:
+              type: number
+    locatorRequest:
+      type: object
+      properties:
+        language:
+          type: string
+          description: Supported VS Code language-id of the input text
+        commitMsg:
+          type: string
+          description: A message precisely describing of the current edit
+        prevEdits:
+          type: array
+          description: Several latest previous edits
+          items:
+            $ref: '#/components/schemas/singlePrevEdit'
+        files:
+          type: object
+          description: All files to be scanned for potential edit locations
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          required:
+            - language
+            - commitMsg
+            - prevEdits
+            - files
+        lspServiceName:
+          type: string
+          description: Name of the predicted edit composition type before querying locator
+          enum:
+            - def&ref
+            - clone
+            - diagnose
+            - normal
+        lspFoundLocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/lspDiagnoseLocation'
+    locatorResponse:
+      type: object
+      properties:
+        files:
+          type: object
+          description: Recommendation of edit locations of each file
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/singleLocationWithEditLabels'
+    generatorRequest:
+      type: object
+      properties:
+        language: 
+          type: string
+          description: Supported VS Code language-id of the input text
+        filePath:
+          type: string
+          description: Path of the file
+        atLine:
+          type: number
+          description: Line number of the edit
+        codeWindow:
+          type: array
+          items:
+            type: string
+          description: Several lines of code around the edit location
+        interLabels:
+          type: array
+          items:
+            type: string
+          description: Intermediate labels for each line
+        inlineLabels:
+          type: array
+          items:
+            type: string
+          description: Inline labels for each line
+        commitMessage:
+          type: string
+          description: A message precisely describing of the current edit
+        prevEdits:
+          type: array
+          items:
+            $ref: '#/components/schemas/singlePrevEdit'
+          description: Several latest previous edits
+        prevEditType:
+          type: string
+          description: Type of the previous edit
+          enum:
+            - def&ref
+            - clone
+            - diagnose
+            - normal
+    generatorResponse:
+      type: array
+      items:
+        type: string
+      description: |
+        Candidates of the edit, representing an entire replacement of the hunk
+        and requires post-processing to determine the difference.
+      

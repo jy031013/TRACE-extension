@@ -46,8 +46,12 @@ export function splitLines(text: string, keepLastEmptyLine: boolean = true): str
  * @param lineNum The base line to extract the block.
  * @returns 
  */
-export function extractBlock(lines: string[], lineNum: number): string[] {
-    if (lineNum >= lines.length) {
+export function extractBlock(lines: string[], lineNum?: number): string[] {
+    if (lineNum === undefined) {
+        lineNum = lines.findIndex(line => line.trim() !== "");
+    }
+
+    if (lineNum < 0 || lineNum >= lines.length) {
         return [];
     }
 

@@ -185,6 +185,8 @@ class EditSelector {
     }
     
     dispose() {
+        this._compareViewOnCloseDisposable?.dispose();
+
         if (this._editCounterLensDisposable) {
             this._editCounterLensDisposable.dispose();
             this._editCounterLensDisposable = undefined;
@@ -210,9 +212,10 @@ class EditSelector {
         const modifiedText = (lines.slice(0, fromLine)).join(lineBreak)
             + (fromLine > 0 ? lineBreak : '')
             + replacement
-            + (toLine < numLines ? lineBreak : '')
+            // + (toLine < numLines ? lineBreak : '')   // there is already a linebreak at the end of the replacement now
             + (lines.slice(toLine, numLines)).join(lineBreak);
         
+        // FIXME don't replace the whole document. Use a partial replacement method.
         this._replaceDocument(modifiedText);
     }
 
@@ -300,9 +303,7 @@ class EditSelector {
 
     async clearEdit() {
         // await vscode.commands.executeCommand('undo');
-        if (this.matchActiveEditor()) {
-            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-        }
+        await this.safeClose();
         await this._replaceDocument(this.originalContent, true);
         // await this.clearRelatedLocation();
     }
@@ -326,9 +327,7 @@ class EditSelector {
 
     async acceptEdit() {
         await this.clearRelatedLocation();
-        if (this.matchActiveEditor()) {
-            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-        }
+        await this.safeClose();
     }
 
     _getPathId() {
@@ -347,6 +346,13 @@ class EditSelector {
             && tab.input instanceof vscode.TabInputTextDiff
             && tab.input.original.toString() === this.tempUri?.toString()
             && tab.input.modified.toString() === this.modifiedUri.toString();
+    }
+
+    async safeClose() {
+        this.dispose();
+        if (this.matchActiveEditor()) {
+            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        }
     }
 }
 

@@ -1,5 +1,4 @@
 import os
-from commit import Commit
 from rapidfuzz import fuzz
 
 def find_line_numbers(start_char_pos, end_char_pos, document_in_lines):
@@ -84,7 +83,7 @@ def find_clone_in_project(files, query: str, threshold=80, lsp_style=False):
     """
     found_clones = []
 
-    for file_path, document_lines in files:
+    for file_path, document_lines in files.items():
         found_segments = find_similar_code_segment(query, document_lines, threshold)
         if found_segments != []:
             for segment in found_segments:
@@ -102,50 +101,48 @@ def find_clone_in_project(files, query: str, threshold=80, lsp_style=False):
                     found_clones.append({
                         "file_path": file_path,
                         "score": segment["score"],
-                        "range": {
-                            "start": {
-                                "line": segment["matched_lines"][0],
-                                "col": 0
-                            },
-                            "end": {
-                                "line": segment["matched_lines"][-1],
-                                "col": 0
-                            }
+                        "start": {
+                            "line": segment["matched_lines"][0],
+                            "col": 0
+                        },
+                        "end": {
+                            "line": segment["matched_lines"][-1],
+                            "col": 0
                         }
                     })
 
     return found_clones
 
-def is_clone_edit(commit: Commit, prior_edits: list):
-    """
-    Func: 
-        Check if the current edit is a clone edit
-    Args:
-        prior_edits: list, a list of prior edits
-    Returns:
-        bool | str: False if not a clone edit, otherwise the code before the current edit
-    """
-    if len(prior_edits) < 2:
-        return False
+# def is_clone_edit(commit: Commit, prior_edits: list):
+#     """
+#     Func: 
+#         Check if the current edit is a clone edit
+#     Args:
+#         prior_edits: list, a list of prior edits
+#     Returns:
+#         bool | str: False if not a clone edit, otherwise the code before the current edit
+#     """
+#     if len(prior_edits) < 2:
+#         return False
     
-    tgt_edit_code_before = "".join(prior_edits[-1]["before"])
-    if tgt_edit_code_before.strip() == "":
-        return False
+#     tgt_edit_code_before = "".join(prior_edits[-1]["before"])
+#     if tgt_edit_code_before.strip() == "":
+#         return False
     
-    other_edit_code_before = "".join(prior_edits[-2]["before"])
-    if other_edit_code_before.strip() == "":
-        return False
+#     other_edit_code_before = "".join(prior_edits[-2]["before"])
+#     if other_edit_code_before.strip() == "":
+#         return False
     
-    if fuzz.ratio(tgt_edit_code_before, other_edit_code_before) > 90:
-        return tgt_edit_code_before
+#     if fuzz.ratio(tgt_edit_code_before, other_edit_code_before) > 90:
+#         return tgt_edit_code_before
 
-    return False
-    # commit.get_current_version(save=True)
-    # query = "".join(prior_edits[-1]["before"])
-    # if query.strip() == "":
-    #     return False
-    # clone_locations = find_clone_in_project(commit, query, lsp_style=True)
-    # if clone_locations == []:
-    #     return False
-    # else:
-    #     return query
+#     return False
+#     # commit.get_current_version(save=True)
+#     # query = "".join(prior_edits[-1]["before"])
+#     # if query.strip() == "":
+#     #     return False
+#     # clone_locations = find_clone_in_project(commit, query, lsp_style=True)
+#     # if clone_locations == []:
+#     #     return False
+#     # else:
+#     #     return query

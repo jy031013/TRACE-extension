@@ -74,12 +74,13 @@ def invoker_interface(data):
         return locator_interface(data)
     
     # search for clone content
-    query = "".join(data["prevEdits"][-1]["rmText"])
-    clones = find_clone_in_project(data["files"], query, lsp_style=True)
-    if clones != []:
-        data["lspServiceName"] = "clone"
-        data["lspFoundLocations"] = clones
-        return locator_interface(data)
+    if (len(data["prevEdits"]) > 0):
+        query = "".join(data["prevEdits"][-1]["rmText"])
+        clones = find_clone_in_project(data["files"], query, lsp_style=True)
+        if clones != []:
+            data["lspServiceName"] = "clone"
+            data["lspFoundLocations"] = clones
+            return locator_interface(data)
     
     lang = data["language"]
     # Transform the 3 label representation to 6 label representation
