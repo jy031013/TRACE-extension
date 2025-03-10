@@ -79,7 +79,7 @@ class Locator(nn.Module):
         else:
             return lm_logits
    
-def make_locator_dataset(sliding_windows: list, prev_eidt_hunks: list,
+def make_locator_dataset(sliding_windows: list, prev_edit_hunks: list,
                          locator_tokenizer: RobertaTokenizer, commit_msg: str)-> TensorDataset:
     """
     Func:
@@ -106,20 +106,23 @@ def make_locator_dataset(sliding_windows: list, prev_eidt_hunks: list,
             }
     """
     source_seqs = []
-    hunks = [CodeWindow(edit, "hunk") for edit in prev_eidt_hunks]
+    hunks = [CodeWindow(edit, "hunk") for edit in prev_edit_hunks]
     for sliding_window in sliding_windows:
         non_overlap_hunks = hunks
         choosen_hunk_ids = [hunk.id for hunk in hunks] # index to hunk id
         tokenized_corpus = [locator_tokenizer.tokenize("".join(hunk.before_edit_region()+hunk.after_edit_region())) for hunk in non_overlap_hunks]
-        bm25 = BM25Okapi(tokenized_corpus)
-        tokenized_query = locator_tokenizer.tokenize("".join(sliding_window["code_window"]))
-        retrieval_code = bm25.get_top_n(tokenized_query, tokenized_corpus, n=3) 
-        retrieved_index = [tokenized_corpus.index(i) for i in retrieval_code] # get index in choosen_hunk_ids
-        prior_edit_id = [choosen_hunk_ids[idx] for idx in retrieved_index] # get corresponding hunk id
+
         prior_edits = []
-        for id in prior_edit_id: # preserve the order
-            prior_edits.append([hunk for hunk in hunks if hunk.id == id][0])
-            
+        
+        if len(tokenized_corpus) != 0:
+            bm25 = BM25Okapi(tokenized_corpus)
+            tokenized_query = locator_tokenizer.tokenize("".join(sliding_window["code_window"]))
+            retrieval_code = bm25.get_top_n(tokenized_query, tokenized_corpus, n=3) 
+            retrieved_index = [tokenized_corpus.index(i) for i in retrieval_code] # get index in choosen_hunk_ids
+            prior_edit_id = [choosen_hunk_ids[idx] for idx in retrieved_index] # get corresponding hunk id
+            for id in prior_edit_id: # preserve the order
+                prior_edits.append([hunk for hunk in hunks if hunk.id == id][0])
+        
         source_seq = formalize_locator_input(sliding_window, commit_msg, prior_edits, locator_tokenizer)
         source_seqs.append(source_seq)
         
@@ -191,7 +194,7 @@ def load_model_locator(model_path,device):
     locator.to(device)
     return locator, locator_tokenizer
 
-def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_msg, device, sliding_windows, service_name):
+def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_msg, device, sliding_windows):
 
     """
     Func:
@@ -231,7 +234,7 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
     
     all_preds, all_confidences = locator_predict(locator, locator_tokenizer, device, "multiple files", locator_dataloader)
 
-    all_preds = hardrule_label_correction(all_preds)
+    all_preds = hardrule_label_correction(all_preds, all_confidences)
 
     locator_response = {}
     for sliding_window, preds, confidences in zip(sliding_windows, all_preds, all_confidences):
@@ -263,8 +266,7 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
                 "inline_labels": inline_preds,
                 "inter_labels": inter_preds,
                 "inline_confidences": inline_confidences,
-                "inter_confidences": inter_confidences,
-                "service_name": service_name
+                "inter_confidences": inter_confidences
             })
             
     return locator_response
