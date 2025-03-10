@@ -68,13 +68,17 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
     Return:
         str: the service name
     """
+    # Take last 3 edit hunks info in time order
     prior_edit_hunk_set = prior_edit_hunks[-min(3, len(prior_edit_hunks)):]
     prior_edit_hunk_set.reverse()
     
+    # Split the hunk into blocks
     code_blocks = finer_grain_window(prior_edit_hunk_set[0]['before_edit'], prior_edit_hunk_set[0]['after_edit'], lang)
+
     input_seqs = []
-    
     common_seq = ""
+
+    # Construct input sequences of each block
     for previous_edit in prior_edit_hunk_set[1:]:
         common_seq += "<previous_edit>"
         common_seq += f"<before>{''.join(previous_edit['before_edit'])}</before>"
@@ -101,10 +105,12 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
     print(f"Input sequences:\n{json.dumps(input_seqs, indent=4)}")
     if input_seqs == []:
         return "normal", None
-    input = invoker_tokenizer(input_seqs, padding="max_length", truncation=True, max_length=512)
-    source_ids = torch.tensor(input["input_ids"]).to(device)
-    source_masks = torch.tensor(input["attention_mask"]).to(device)
+    
+    tk_result = invoker_tokenizer(input_seqs, padding="max_length", truncation=True, max_length=512)
+    source_ids = torch.tensor(tk_result["input_ids"]).to(device)
+    source_masks = torch.tensor(tk_result["attention_mask"]).to(device)
 
+    # Predict each block's type
     threshold = np.array([0.5, 0.5, 0.5, 0.5])
     with torch.no_grad():
         logits = invoker(source_ids=source_ids, source_mask=source_masks, labels=None, train=False)
@@ -121,6 +127,7 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         elif prediction[3] == 1:
             results.append("clone")
 
+    # Use the type of first block as result
     if len(set(results)) == 0:
         return "normal"
     else:
