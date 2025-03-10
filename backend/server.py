@@ -11,10 +11,24 @@ app = Flask(__name__)
 
 SUPPORTED_LANGUAGES = ["go", "python", "java", "typescript", "javascript"]
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+LOGGING_BASIC_FORMAT = '[%(asctime)s][%(name)s][%(levelname)s] %(message)s'
+logging.basicConfig(level=logging.WARNING, format=LOGGING_BASIC_FORMAT)
 
-logger.info("Modules loaded. Server ready.")
+logger = logging.getLogger(__name__)
+logger.propagate = False
+logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter(LOGGING_BASIC_FORMAT))
+console_handler.setLevel(logging.INFO)
+logger.addHandler(console_handler)
+
+file_handler = logging.FileHandler('server.log')
+file_handler.setFormatter(logging.Formatter(LOGGING_BASIC_FORMAT))
+file_handler.setLevel(logging.DEBUG)
+logger.addHandler(file_handler)
+
+logger.info("Modules loaded. Starting server...")
 
 def make_plain_text_response(result):
     response = make_response(result, 200)
@@ -27,7 +41,7 @@ def make_400_response(err_msg):
     return response
 
 def run_predict(predict_name, predict_func):
-    print(f">>> Running {predict_name}")
+    logger.info(f"Running {predict_name}")
     json_str = request.data.decode('utf-8')
     input_json = json.loads(json_str)
 
@@ -35,11 +49,11 @@ def run_predict(predict_name, predict_func):
     if language not in SUPPORTED_LANGUAGES:
         return make_400_response(f"Not supporting language {language} yet.")
     
-    logger.debug(f"{predict_name} inferencing: \n${json.dumps(input_json, indent=4)}")
+    logger.debug(f"{predict_name} input: \n{json.dumps(input_json, indent=4)}")
 
     result = predict_func(input_json)
 
-    logger.debug(f"{predict_name} output: \n${json.dumps(result, indent=4)}")
+    logger.debug(f"{predict_name} output: \n{json.dumps(result, indent=4)}")
     logger.info(f"{predict_name} sending output")
 
     return make_plain_text_response(result)
@@ -61,4 +75,13 @@ if __name__ == '__main__':
     # app.run(host='0.0.0.0', port=5001, debug=True)
     config = configparser.ConfigParser()
     config.read(f'{os.path.dirname(__file__)}/server.ini')
-    serve(app, host=config['DEFAULT']['ListenHost'], port=config['DEFAULT']['ListenPort'])
+
+    port = int(config['DEFAULT']['ListenPort'])
+    while True:
+        try:
+            serve(app, host=config['DEFAULT']['ListenHost'], port=port, threads=4)
+            logger.info("Server closed.")
+            break
+        except OSError:
+            port += 1
+            logger.info(f"Port {port-1} is in use, trying port {port}")
