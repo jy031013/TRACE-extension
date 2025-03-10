@@ -210,6 +210,9 @@ async function predictEdit() {
             }
         }
 
+        let contextStartLine = startLine;
+        let contextEndLine = endLine;
+
         if (shouldUseOriginalCodeWindow) {
             startLine = fromLine;
             endLine = toLine + 1;
@@ -221,14 +224,29 @@ async function predictEdit() {
             } else {
                 inlineLabels = new Array(endLine - startLine).fill('<replace>');
             }
+
+
+            // Do we need to add more context beyond the locator response code window?
+            // We need, if the code window is from user selection, not the locator
+    
+            const contextLinesBefore = 3;
+            const contextLinesAfter = 3;
+
+            const contextStartLine = Math.max(startLine - contextLinesBefore, 0);
+            const contextEndLine = Math.min(endLine + contextLinesAfter, fileLines.length);
+    
+            const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
+            const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
+            codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
+            
+            const inlineLabelsBefore = new Array(codeWindowContextBefore.length).fill('<keep>');
+            const inlineLabelsAfter = new Array(codeWindowContextAfter.length).fill('<keep>');
+            inlineLabels = [inlineLabelsBefore, inlineLabels, inlineLabelsAfter].flat();
+    
+            const interLabelsBefore = new Array(codeWindowContextBefore.length).fill('<null>');
+            const interLabelsAfter = new Array(codeWindowContextAfter.length).fill('<null>');
+            interLabels = [interLabelsBefore, interLabels, interLabelsAfter].flat();
         }
-
-        const contextStartLine = Math.max(startLine, 0);
-        const contextEndLine = Math.min(endLine + 1, fileLines.length);
-
-        const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
-        const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
-        codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
 
         const {
             requestEdits,
@@ -267,6 +285,14 @@ async function predictEdit() {
             }
         });
         replacementStringsOfEntireBlock = filteredReplacementStrings;
+
+        // rank by length, note that the sorting is stable
+        replacementStringsOfEntireBlock.sort((a: string, b: string) => {
+            const aLength = a.length;
+            const bLength = b.length;
+            if (aLength === bLength) return 0;
+            return aLength < bLength ? -1 : 1;
+        });
 
         // limit number
         const maxEdits = 3;
