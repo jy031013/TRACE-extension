@@ -2,9 +2,9 @@ import vscode, { TreeItem, TreeItemCollapsibleState } from 'vscode';
 import path from 'path';
 import { DisposableComponent } from '../utils/base-component';
 import { getRootPath, toRelPath } from '../utils/file-utils';
-import { EditType, BackendApiEditLocation, FileEdits } from '../utils/base-types';
+import { EditType, LocatorLocation, FileEdits } from '../utils/base-types';
 import { UniqueRefactorEditsSet } from '../comands';
-import { generateTimeSepcificId } from '../utils/utils';
+import { generateTimeSpecificId } from '../utils/utils';
 
 export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileItem | ModItem>  {
     private _onDidChangeTreeData: vscode.EventEmitter<FileItem | undefined> = new vscode.EventEmitter<FileItem | undefined>();
@@ -24,12 +24,12 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
 
     empty() {
         this.modTree = [];
-        this.notifyChangeofTree();
+        this.notifyChangeOfTree();
     }
 
-    reloadData(modList: BackendApiEditLocation[]) {
+    reloadData(modList: LocatorLocation[]) {
         this.modTree = this.buildModTree(modList);
-        this.notifyChangeofTree();
+        this.notifyChangeOfTree();
     }
 
     // TODO reimplement this in another provider class
@@ -40,10 +40,10 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
         }
 
         this.modTree = this.buildRefactorTree(editList);
-        this.notifyChangeofTree();
+        this.notifyChangeOfTree();
     }
 
-    notifyChangeofTree() {
+    notifyChangeOfTree() {
         this._onDidChangeTreeData.fire(undefined);
         this._onDidChangeLocationNumber.fire(this.numOfLocation());
     }
@@ -103,7 +103,7 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
      */
     
     
-    buildModTree(modList: BackendApiEditLocation[]) {
+    buildModTree(modList: LocatorLocation[]) {
         const categorizeByAttr = (arr: any[], attr: any) => 
             arr.reduce((acc, obj) => {
                 const key = obj[attr];
@@ -125,7 +125,7 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
     buildRefactorTree(editList: FileEdits[]) {
         var modTree = [];
         const refactorEditsSet: UniqueRefactorEditsSet = {
-            id: generateTimeSepcificId(),
+            id: generateTimeSpecificId(),
             edits: editList
         };
         for (const [uri, edits] of editList) {
@@ -152,7 +152,7 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
         }
     }
 
-    getFileItem(filePath: string, fileMods: BackendApiEditLocation[]) {
+    getFileItem(filePath: string, fileMods: LocatorLocation[]) {
         const modListOnPath = fileMods;
         const fileName = path.basename(filePath); 
         var fileItem = new FileItem(
@@ -340,7 +340,7 @@ class EditLocationViewManager extends DisposableComponent {
         };
     }
 
-    async reloadLocations(locations: BackendApiEditLocation[]) {
+    async reloadLocations(locations: LocatorLocation[]) {
         this.provider.reloadData(locations);
         this.setUpBadge(locations.length);
         if (!this.treeView.visible) {

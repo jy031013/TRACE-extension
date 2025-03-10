@@ -9,7 +9,7 @@ export type SimpleEdit = {
     beforeEdit: string[] // string list, can be empty list if no code added
 }
 
-export type BackendApiEditLocation = {
+export type LocatorLocation = {
     targetFilePath: string;
     editType: EditType;
     lineBreak: LineBreak;
@@ -20,7 +20,7 @@ export type BackendApiEditLocation = {
     }
 };
 
-export type BackendApiEdit = {
+export type ApiRequestGenerator = {
     atLines: number[],
     editType: EditType,
     endPos: number,
@@ -43,14 +43,29 @@ export type SingleLineEdit = {
 
 export type FileEdits = [vscode.Uri, vscode.TextEdit[]];
 
-export type Edit = {
+export type RequestEdit = {
     path: string; // the file path
     line: number; // starting line
     rmLine: number; // number of removed lines
     rmText: string[]; // removed text, if no text removed, then empty list
     addLine: number; // number of added lines
     addText: string[]; // added text, if no text added, then empty list
-};
+    codeAbove: string[],
+    codeBelow: string[]
+}
+
+export type EditWithTimestamp = {
+    uriString: string; // the file path
+    line: number; // starting line
+    rmLine: number; // number of removed lines
+    rmText: string[]; // removed text, if no text removed, then empty list
+    addLine: number; // number of added lines
+    addText: string[]; // added text, if no text added, then empty list
+    codeAbove: string[],
+    codeBelow: string[],
+    timestamp: number
+}
+
 export const supportedLanguages = [
     "go",
     "python",

@@ -1,14 +1,19 @@
 import vscode from 'vscode';
-import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected } from '../utils/file-utils';
+import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
-import { globalEditDetector } from '../editor-state-monitor';
-import { requestAndUpdateLocation, requestAndUpdateEdit, requestAndUpdateLocationByNavEdit } from './query-processes';
+import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestLocationByNavEdit } from './query-processes';
 import { DisposableComponent } from '../utils/base-component';
 import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view';
 import { statusBarItem } from '../ui/progress-indicator';
-import { EditType, FileAsHunks } from '../utils/base-types';
+import { EditType, EditWithTimestamp, FileAsHunks, RequestEdit, SimpleEdit } from '../utils/base-types';
+import { splitLines } from '../utils/utils';
+import { globalEditInfoCollector } from '../editor-state-monitor';
+import { PreJudgedLspType, RequestLspFoundLocation } from './backend-requests';
 
+/**
+ * @deprecated This function is obsolete. Fetching previous edits in the new way is not implemented yet;
+ */
 async function predictLocation() {
     if (!globalEditorState.isActiveEditorLanguageSupported()) {
         vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
@@ -24,14 +29,14 @@ async function predictLocation() {
         await new Promise((resolve) => setTimeout(resolve, 300));
         const files: [string, string][] = [];
         try {
-            const currentPrevEdits = await globalEditDetector.getUpdatedSimpleEditList();
+            const currentPrevEdits: SimpleEdit[] = [];
             statusBarItem.setStatusQuerying("locator");
             // TODO depart this step, because it is not parallel to other steps
             await requestAndUpdateLocation(rootPath, files, currentPrevEdits, commitMessage, globalEditorState.language);
             statusBarItem.setStatusDefault();
         } catch (err) {
             vscode.window.showErrorMessage("Oops! Something went wrong with the query request 😦");
-            statusBarItem.setStatustProblem("Some error occured when predicting locations");
+            statusBarItem.setStatusProblem("Some error occured when predicting locations");
             throw err;
         }
     });
@@ -48,29 +53,53 @@ async function predictLocationByNavEdit() {
 
         statusBarItem.setStatusLoadingFiles();
         const rootPath = getRootPath();
-        const files = await readFilesDefaultCollected() as [string, string | FileAsHunks][];
+        const fileContents = await readFilesDefaultCollected() as [string, string][];
 
-
-        // Update the prevEdits, edit.line are 0-indexed
-        const currentPrevEdits = await globalEditDetector.getUpdatedEditList();
-
-        // replace "current content" of file to the "not edited and edited hunks" of file for the convenience of backend processing
-        for (const pathAndContent of files) {
-            if (globalEditDetector.hasSnapshot(pathAndContent[0])) {
-                const editedHunks = globalEditDetector.getEditedHunks(pathAndContent[0]);
-                if (editedHunks) {
-                    pathAndContent[1] = editedHunks;
-                }
-            }
+        // Split the file content into lines
+        const files: [string, string[]][] = [];
+        for (const pathAndContent of fileContents) {
+            const content = pathAndContent[1];
+            const lines = splitLines(content, false);
+            files.push([pathAndContent[0], lines]);
         }
+
+        const filesAtPath: { [key: string]: string[] } = {};
+        for (const file of files) {
+            filesAtPath[file[0]] = file[1];
+        }
+
+        const {
+            requestEdits,
+            lspType,
+            fullLspFoundLocations,
+            cachedRenameOperation
+        } = await globalEditInfoCollector.exportAnalyzedEdits();
+
         try {
             statusBarItem.setStatusQuerying("locator");
             // TODO depart this step, because it is not parallel to other steps
-            await requestAndUpdateLocationByNavEdit(rootPath, files, currentPrevEdits, commitMessage, globalEditorState.language);
+            
+            const invokerResult = await requestLocationByNavEdit(
+                filesAtPath,
+                requestEdits,
+                commitMessage,
+                globalEditorState.language,
+                lspType,
+                fullLspFoundLocations,
+                cachedRenameOperation
+            );
+            if (invokerResult) {
+                if (invokerResult[0] === 'rename') {
+                    globalQueryContext.updateRefactor(invokerResult[1]);
+                } else if (invokerResult[0] === 'location') {
+                    globalQueryContext.updateLocations(invokerResult[1]);
+                }
+            }
+            
             statusBarItem.setStatusDefault();
         } catch (err) {
-            vscode.window.showErrorMessage("Oops! Something went wrong with the query request 😦");
-            statusBarItem.setStatustProblem("Some error occured when predicting locations");
+            vscode.window.showErrorMessage("Oops! Something went wrong with the query request...", err instanceof Error ? err.message : "Unknown error");
+            statusBarItem.setStatusProblem("Some error occurred when predicting locations");
             throw err;
         }
     });
@@ -103,7 +132,7 @@ async function predictEdit() {
     const uri = activeDocument.uri;
 
     // extract selected line numbers
-    const atLines = [];
+    const atLines: number[] = [];
     const selectedRange = activeEditor.selection;
     
     const fromLine = selectedRange.start.line;
@@ -133,27 +162,91 @@ async function predictEdit() {
     );
     
     statusBarItem.setStatusQuerying("generator");
+
     try {
-        const queryResult = await requestAndUpdateEdit(
-            targetFileContent,
-            editType,
-            atLines,
-            await globalEditDetector.getUpdatedSimpleEditList(),
+        let codeWindow: string[] = [];
+        let inlineLabels: string[] = [];
+        let interLabels: string[] = [];
+        let startLine: number = 0;
+        let endLine: number = 0;
+
+        let shouldUseOriginalCodeWindow = true;
+
+        // TODO functions of getting file content and getting lines should be wrap elsewhere as utils
+
+        const openedPaths = getOpenedFilePaths();
+        const fileContent = await getStagedFile(openedPaths, toDriveLetterLowerCasePath(uri.fsPath));
+        const fileLines = splitLines(fileContent, true);
+
+        const selectedNavEditResult = globalQueryContext.activeNavEditLocationResult;
+        if (selectedNavEditResult) {
+            const locationsInFile = selectedNavEditResult.getLocations().get(uri.toString());
+            const coveredInLocation = locationsInFile?.find((location) => {
+                const startLine = location.code_window_start_line;
+                const endLine = location.code_window_start_line + location.inline_labels.length;
+                return atLines.every((line) => line >= startLine && line < endLine);
+            });
+
+            if (coveredInLocation) {
+                startLine = coveredInLocation.code_window_start_line;
+                endLine = startLine + coveredInLocation.inline_labels.length;
+
+                codeWindow = fileLines.slice(startLine, endLine);
+                inlineLabels = coveredInLocation.inline_labels;
+                interLabels = coveredInLocation.inter_labels;
+
+                shouldUseOriginalCodeWindow = false;
+            }
+        }
+
+        if (shouldUseOriginalCodeWindow) {
+            startLine = fromLine;
+            endLine = toLine + 1;
+
+            codeWindow = fileLines.slice(startLine, endLine);
+            interLabels = new Array(endLine - startLine + 1).fill('<null>');
+            if (editType === 'add') {
+                inlineLabels = new Array(endLine - startLine).fill('<add>');
+            } else {
+                inlineLabels = new Array(endLine - startLine).fill('<replace>');
+            }
+        }
+
+        const codeWindowContextBefore = fileLines.slice(Math.max(startLine, 0), startLine);
+        const codeWindowContextAfter = fileLines.slice(endLine, Math.min(endLine + 1, fileLines.length));
+        codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
+
+        const {
+            requestEdits,
+            lspType,
+            fullLspFoundLocations,
+            cachedRenameOperation
+        } = await globalEditInfoCollector.exportAnalyzedEdits();
+
+        let replacementStrings = await requestEdit(
+            globalEditorState.language,
+            activeDocument.uri.fsPath,
+            atLines[0] ?? 0,
+            codeWindow,
+            interLabels,
+            inlineLabels,
             commitMessage,
-            globalEditorState.language
+            requestEdits,
+            lspType,
+            lspType
         );
 
-        if (!queryResult) { return; }
+        if (!replacementStrings) { return; }
         
         // Remove syntax-level unchanged replacements
         // TODO specify this step to a function
-        queryResult.replacement = queryResult.replacement.filter((snippet: string) => snippet.trim() !== selectedContent.trim());
+        replacementStrings = replacementStrings.filter((snippet: string) => snippet.trim() !== selectedContent.trim());
 
         const selector = new EditSelector(
             toPosixPath(uri.fsPath),
             fromLine,
             toLine+1,
-            queryResult.replacement,
+            replacementStrings,
             tempWrite,
             false
         );
@@ -163,7 +256,7 @@ async function predictEdit() {
     } catch (err) {
         // TODO add a error logging channel to "Outputs"
         vscode.window.showErrorMessage("Oops! Something went wrong with the query request 😦");
-        statusBarItem.setStatustProblem("Some error occured when predicting edits");
+        statusBarItem.setStatusProblem("Some error occurred when predicting edits");
         throw err;
     }
 }

@@ -1,12 +1,14 @@
 import os from "os";
 import vscode from "vscode";
 import { DisposableComponent } from "./utils/base-component";
-import { LineBreak, BackendApiEditLocation, SingleLineEdit, FileEdits } from "./utils/base-types";
-import { LocationResultDecoration } from "./ui/location-decoration";
+import { LineBreak, LocatorLocation, SingleLineEdit, FileEdits } from "./utils/base-types";
+import { HighlightedLocation, LocationResultDecoration } from "./ui/location-decoration";
 import { globalLocationViewManager, globalRefactorPreviewTreeViewManager } from "./views/location-tree-view";
 import { findFirstDiffPos } from "./utils/utils";
 import { getLineInfoInDocument } from "./utils/file-utils";
 import { diffWords } from "diff";
+import { CodeRangesInFile } from "./editor-state-monitor";
+import { ResponseEditLocationWithLabels, ResponseNavEditLocator } from "./services/backend-requests";
 
 // TODO consider using/transfering to `async-lock` for this
 class EditLock {
@@ -58,13 +60,16 @@ class QuerySettings {
  * i.e., its data, ui, and lifecycle
  */
 class LocationResult {
-    private readonly locations: BackendApiEditLocation[] = [];
+    private readonly locations: LocatorLocation[] = [];
     
     private decoration: LocationResultDecoration;
 
-    constructor(locations: BackendApiEditLocation[]) {
+    constructor(locations: LocatorLocation[]) {
         this.locations = locations;
-        this.decoration = new LocationResultDecoration(this.locations);
+        this.decoration = new LocationResultDecoration({
+            type: 'original-locator-request',
+            locations: this.locations
+        });
         this.decoration.show();
         globalLocationViewManager.reloadLocations(this.locations);
     }
@@ -81,12 +86,96 @@ class LocationResult {
     }
 }
 
+/**
+ * NavEdit predicted locations with labels on each line,
+ * which could contain a set of edits.
+ */
+class NavEditLocationResult {
+    /** Indexed as [URI String] -> [Location Results] */
+    private readonly locations: Map<string, ResponseEditLocationWithLabels[]>;
+    
+    private decoration: LocationResultDecoration;
+
+    constructor(locations: [vscode.Uri, ResponseEditLocationWithLabels[]][]) {
+        this.locations = new Map(locations.map(([uri, loc]) => [uri.toString(), loc]));
+
+        const highlightedLocations: HighlightedLocation[] = Array.from(locations.entries()).reduce((acc, [i, [uri, locs]]) => {
+            locs.forEach(loc => {
+                const editType = loc.inline_labels.every((loc) => loc === 'add') ? 'add' : 'replace';
+                acc.push({
+                    location: new vscode.Location(
+                        uri,
+                        new vscode.Range(
+                            loc.code_window_start_line,
+                            0,
+                            loc.code_window_start_line + loc.inline_labels.length,
+                            Number.MAX_SAFE_INTEGER
+                        )
+                    ),
+                    type: editType
+                });
+            });
+
+            return acc;
+        }, [] as HighlightedLocation[]);
+        
+        this.decoration = new LocationResultDecoration({
+            type: 'plain-location',
+            locations: highlightedLocations
+        });
+
+        this.convertHighlightedLocationsToTraditionalLocation(highlightedLocations)
+            .then(convertedLocations => globalLocationViewManager.reloadLocations(Array.from(convertedLocations)));
+    }
+
+    /** Indexed as [URI String] -> [Location Results] */
+    getLocations() {
+        return this.locations;
+    }
+
+    dispose() {
+        this.decoration.dispose();
+        // TODO there could be multiple sets of locations existing at the same time
+        // use a manager class for each
+        globalLocationViewManager.reloadLocations([]);
+    }
+
+    private async convertHighlightedLocationsToTraditionalLocation(highlightedLocations: HighlightedLocation[]): Promise<LocatorLocation[]> {
+        const locations: LocatorLocation[] = await Promise.all(highlightedLocations.map(async (hl) => {
+            const uri = hl.location.uri.fsPath;
+            const startLine = hl.location.range.start.line;
+            const endLine = hl.location.range.end.line;
+            const editType = hl.type === 'add' ? 'add' : 'replace';
+
+            // TODO should we let the tree view compute the text?
+            return {
+                targetFilePath: uri,
+                atLines: [startLine, endLine],
+                editType,
+                lineBreak: defaultLineBreak,
+                lineInfo: {
+                    range: hl.location.range,
+                    text: await this.fetchTextFromLocation(hl.location.uri, startLine, endLine)
+                }
+            };
+        }));
+        return locations;
+    }
+
+    private async fetchTextFromLocation(uri: vscode.Uri, startLine: number, endLine: number): Promise<string> {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        if (!doc) return '';
+        const lines = doc.getText(new vscode.Range(startLine, 0, endLine, Number.MAX_SAFE_INTEGER));
+        return lines;
+    }
+}
+
 class SingleRefactorResult {
-    private readonly refactorOperation: RefactorOperation;
+    private readonly refactorOperation: Refactor;
     
     private fileEdits: FileEdits[] = [];
 
-    constructor(refactorOperation: RefactorOperation) {
+    constructor(refactorOperation: Refactor) {
         this.refactorOperation = refactorOperation;
     }
 
@@ -148,11 +237,26 @@ export async function createRenameRefactor(file: string, line: number, beforeTex
     });
 }
 
-interface Refactor {
+export function createDeterminedRenameRefactor(newName: string, renameRangesInFiles: CodeRangesInFile[]) {
+    const fileEdits: FileEdits[] = [];
+    for (const rangesInFile of renameRangesInFiles) {
+        const renameUri = rangesInFile.uri;
+        const fileEdit: FileEdits = [renameUri, []];
+
+        for (const range of rangesInFile.ranges) {
+            const textEdit = new vscode.TextEdit(range, newName);
+            fileEdit[1].push(textEdit);
+        }
+        fileEdits.push(fileEdit);
+    }
+    return new DeterminedRenameRefactor(fileEdits);
+}
+
+export interface Refactor {
     resolveLocations(): Promise<FileEdits[]>;
 }
 
-class RenameRefactor implements Refactor {
+export class RenameRefactor implements Refactor {
     private readonly firstRename: SingleLineEdit;
     private resolvedEdits: FileEdits[] = [];
 
@@ -227,12 +331,23 @@ class RenameRefactor implements Refactor {
         // const doc = vscode.workspace.
     }
 }
-type RefactorOperation = RenameRefactor;
+
+export class DeterminedRenameRefactor implements Refactor {
+    private determinedEdits: FileEdits[];
+
+    constructor(determinedEdits: FileEdits[]) {
+        this.determinedEdits = determinedEdits;
+    }
+    async resolveLocations(): Promise<FileEdits[]> {
+        return this.determinedEdits;
+    }
+}
 
 class QueryContext extends DisposableComponent {
     readonly querySettings: QuerySettings = new QuerySettings();
-    private activeLocationResult?: LocationResult;
-    private activeRefactorResult?: SingleRefactorResult;
+    activeLocationResult?: LocationResult;
+    activeNavEditLocationResult?: NavEditLocationResult;
+    activeRefactorResult?: SingleRefactorResult;
 
     constructor() {
         super();
@@ -254,13 +369,25 @@ class QueryContext extends DisposableComponent {
         return this.activeLocationResult?.getLocations();
     }
 
-    updateLocations(locations: BackendApiEditLocation[]) {
+    updateLocations(locations: LocatorLocation[]) {
         // cannot use destructor() here due to JavaScript nature
         this.clearResults();
         this.activeLocationResult = new LocationResult(locations);
     }
 
-    updateRefactor(refactor: RefactorOperation) {
+    updateNavEditLocations(response: ResponseNavEditLocator) {
+        this.clearResults();
+        const locations: [vscode.Uri, ResponseEditLocationWithLabels[]][] = [];
+        for (const filePath in response.files) {
+            const uri = vscode.Uri.file(filePath);
+            const fileLocations = response.files[filePath];
+
+            locations.push([uri, fileLocations]);
+        }
+        this.activeNavEditLocationResult = new NavEditLocationResult(locations);
+    }
+
+    updateRefactor(refactor: Refactor) {
         this.clearResults();
         this.activeRefactorResult = new SingleRefactorResult(refactor);
         this.activeRefactorResult.resolve();

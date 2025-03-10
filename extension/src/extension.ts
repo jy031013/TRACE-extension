@@ -8,6 +8,8 @@ import { statusBarItem } from './ui/progress-indicator';
 import { modelServerProcess } from './services/backend-requests';
 
 function activate(context: vscode.ExtensionContext) {
+	console.log('Extension activated with arguments:', process.argv);
+
 	context.subscriptions.push(
 		globalEditorState,
 		compareTempFileSystemProvider,

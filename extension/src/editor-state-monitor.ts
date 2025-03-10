@@ -2,42 +2,971 @@ import * as vscode from 'vscode';
 import { globalEditorState } from './global-workspace-context';
 import { statusBarItem } from './ui/progress-indicator';
 import { Change, diffLines } from 'diff';
-import { Edit, FileAsHunks } from "./utils/base-types";
+import { RequestEdit, EditWithTimestamp, FileAsHunks } from "./utils/base-types";
 import { DisposableComponent } from "./utils/base-component";
-import { getOpenedFilePaths, getStagedFile } from './utils/file-utils';
+import { getOpenedFilePaths, getOpenedFileUris, getStagedFile } from './utils/file-utils';
 import { globalQueryContext } from './global-result-context';
-import { splitLines } from './utils/utils';
+import { extractBlock, splitLines } from './utils/utils';
+import { PreJudgedLspType, RequestLspFoundLocation } from './services/backend-requests';
+import { CachedRenameOperation } from './services/query-processes';
+
+class WorkspaceEditInfoCollector implements vscode.Disposable {
+    private editWatcher: EditWatcher;
+
+    constructor() {
+        this.editWatcher = new EditWatcher();
+    }
+
+    dispose() {
+        this.editWatcher.dispose();
+    }
+
+    watch(uri: vscode.Uri) {
+        console.log(`√ InfoCollector watching ${uri.toString()}`);
+        this.editWatcher.watch(uri);
+    }
+    
+    unwatch(uri: vscode.Uri) {
+        console.log(`× InfoCollector unatching ${uri.toString()}`);
+        this.editWatcher.unwatch(uri);
+    }
+
+    watchAllOpened() {
+        const openedDocumentUris = getOpenedFileUris();
+        for (const uri of openedDocumentUris) {
+            this.watch(uri);
+        }
+    }
+
+    clearHistory() {
+        this.editWatcher.clearHistory();
+        this.watchAllOpened();
+    }
+
+    /** We often use this on AFTER-EDIT VERSION to determine what bugs should be fixed in current document */
+    getAllDiagnosticInfo() {
+        const allDiagnostics = vscode.languages.getDiagnostics();
+        return allDiagnostics;
+    }
+
+    /** We often use this on BEFORE-EDIT VERSION to determine what locations should be changed together */
+    getAllClones(snippet: string, originalStartLine: number) {
+        const allClones: Map<string, vscode.Location[]> = new Map();
+
+        if (snippet.length === 0) {
+            return allClones;
+        }
+
+        const allDocuments = vscode.workspace.textDocuments;
+        for (const doc of allDocuments) {
+            const uri = doc.uri;
+            const text = doc.getText();
+            if (text.includes(snippet)) {
+                const locations = [];
+                let startPos = 0;
+                while (startPos < text.length) {
+                    const index = text.indexOf(snippet, startPos);
+                    if (index === -1) break;
+                    const foundLine = doc.positionAt(index).line;
+                    if (foundLine !== originalStartLine) {
+                        locations.push(new vscode.Location(uri, new vscode.Range(doc.positionAt(index), doc.positionAt(index + snippet.length))));
+                    }
+                    startPos = index + Math.max(snippet.length, 1);
+                }
+                allClones.set(uri.toString(), locations);
+            }
+        }
+        return allClones;
+    }
+
+    async exportEdits() {
+        return this.editWatcher.collectEditsWithMatchedSyntaxInfo(false);
+    }
+
+    async exportEditsWithMatchedSyntaxInfo(lastOnly: boolean = false)  {
+        return this.editWatcher.collectEditsWithMatchedSyntaxInfo(true, lastOnly);
+    }
+
+    async exportLspFoundLocationsForEdit(editWithSyntaxInfo: EditWithSyntaxInfo): Promise<CategorizedLspFoundLocations> {
+        const lspFoundLocations: CategorizedLspFoundLocations = {
+            def: [],
+            ref: [],
+            rename: [],
+            clone: []
+        };
+
+        // Process def, ref and rename syntax info
+        const syntaxInfoTypes = ['beforeSyntaxInfo', 'afterSyntaxInfo'] as const;
+        for (const syntaxInfoType of syntaxInfoTypes) {
+            const syntaxInfo = editWithSyntaxInfo[syntaxInfoType];
+            if (!syntaxInfo) continue;
+
+            for (const infoType of ['def', 'ref', 'rename'] as const) {
+                const info = syntaxInfo[infoType];
+                if (!info) continue;
+                for (const [header, record] of info) {
+                    let locations: CodeRangeInFile[] = [];
+                    if ('allDefs' in record) {
+                        locations = record.allDefs;
+                    } else if ('allRefs' in record) {
+                        locations = record.allRefs;
+                    } else if ('allRenameRanges' in record) {
+                        locations = record.allRenameRanges.flatMap(r => r.ranges.map(range => ({ uri: r.uri, range })));
+                    }
+                    for (const location of locations) {
+                        const foundLocation: RequestLspFoundLocation = {
+                            file_path: location.uri.fsPath,
+                            start: {
+                                line: location.range.start.line,
+                                col: location.range.start.character
+                            },
+                            end: {
+                                line: location.range.end.line,
+                                col: location.range.end.character
+                            }
+                        };
+                        lspFoundLocations[infoType].push(foundLocation);
+                    }
+                }
+            }
+        }
+
+        // Process code clones
+        const edit = editWithSyntaxInfo.edit;
+
+        const blockWithContext = [edit.codeAbove, edit.rmText, edit.codeBelow].flat();
+        const targetBlockToFindClone = extractBlock(blockWithContext, edit.line - 1);
+
+        const foundClones = this.getAllClones(targetBlockToFindClone.join(''), edit.line);
+        for (const [uriString, locations] of foundClones) {
+            const uri = vscode.Uri.parse(uriString);
+            for (const location of locations) {
+                const foundLocation: RequestLspFoundLocation = {
+                    file_path: uri.fsPath,
+                    start: {
+                        line: location.range.start.line,
+                        col: location.range.start.character
+                    },
+                    end: {
+                        line: location.range.end.line,
+                        col: location.range.end.character
+                    }
+                };
+                lspFoundLocations.clone.push(foundLocation);
+            }
+        }
+
+        return lspFoundLocations;
+    }
+
+    async exportLspFoundLocationsForDiagnose(): Promise<RequestLspFoundLocation[]> {
+        const lspFoundLocations: RequestLspFoundLocation[] = [];
+
+        // Process real-time diagnostic
+        const allDiagnosticInfo = this.getAllDiagnosticInfo();
+
+        for (const [uri, diagnostics] of allDiagnosticInfo) {
+            for (const diagnostic of diagnostics) {
+                const foundLocation: RequestLspFoundLocation = {
+                    file_path: uri.fsPath,
+                    start: {
+                        line: diagnostic.range.start.line,
+                        col: diagnostic.range.start.character
+                    },
+                    end: {
+                        line: diagnostic.range.end.line,
+                        col: diagnostic.range.end.character
+                    }
+                };
+                lspFoundLocations.push(foundLocation);
+            }
+        }
+
+        return lspFoundLocations;
+    }
+
+    async exportAnalyzedEdits() {
+        // Only collect the last previous edit
+        const currentPrevEditsInfo = await this.exportEditsWithMatchedSyntaxInfo(true);
+
+        let cachedRenameOperation: CachedRenameOperation | undefined;
+
+        let lspType: PreJudgedLspType = 'normal';
+        if (currentPrevEditsInfo.length > 0) {
+            // TODO 'rename' is detect by backend invoker, why not detect it here?
+            for (const lspInfoTypeToDetect of ['def', 'ref'] as const) {
+                for (const syntaxInfoType of ['beforeSyntaxInfo', 'afterSyntaxInfo'] as const) {
+                    const detected = currentPrevEditsInfo[0][syntaxInfoType]?.[lspInfoTypeToDetect];
+                    if (detected && detected.length > 0) {
+                        switch (lspInfoTypeToDetect) {
+                            case 'def':
+                            case 'ref':
+                                lspType = 'def&ref';
+                                break;
+                        }
+                    }
+                }
+            }
+
+            const renameInfo = currentPrevEditsInfo[0]['beforeSyntaxInfo']?.rename;
+            if (renameInfo && renameInfo.length > 0) {
+                const firstRenameInfo = renameInfo[0];
+                cachedRenameOperation = {
+                    identifier: firstRenameInfo[0].identifier,
+                    ranges: firstRenameInfo[1].allRenameRanges
+                };
+            }
+        }
+
+        const fullLspFoundLocations: RequestLspFoundLocation[] = [];
+
+        if (currentPrevEditsInfo.length > 0) {
+            const lspFoundLocationsForEdit = await globalEditInfoCollector.exportLspFoundLocationsForEdit(currentPrevEditsInfo[0]);
+
+            if (lspFoundLocationsForEdit.clone.length > 0 && lspType === 'normal') {
+                lspType = 'clone';
+            }
+
+            fullLspFoundLocations.push(...[
+                lspFoundLocationsForEdit.def,
+                lspFoundLocationsForEdit.ref,
+                lspFoundLocationsForEdit.rename,
+                lspFoundLocationsForEdit.clone
+            ].flat());
+        }
+
+        const lspFoundLocationsForDiagnose = await globalEditInfoCollector.exportLspFoundLocationsForDiagnose();
+        if (lspFoundLocationsForDiagnose.length > 0 && lspType === 'normal') {
+            lspType = 'diagnose';
+        }
+        fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
+
+        const requestEdits: RequestEdit[] = currentPrevEditsInfo.map(({ edit: editWithTimestamp }) => convertToRequestEdit(editWithTimestamp));
+
+        return {
+            requestEdits,
+            lspType,
+            fullLspFoundLocations,
+            cachedRenameOperation
+        };
+    }
+}
+
+export type EditSyntaxInfo = {
+    def: [SyntaxInfoEntryHeader, DefInfo][];
+    ref: [SyntaxInfoEntryHeader, RefInfo][];
+    rename: [SyntaxInfoEntryHeader, RenameInfo][];
+}
+
+export type EditWithSyntaxInfo = {
+    edit: EditWithTimestamp,
+    beforeSyntaxInfo?: EditSyntaxInfo;
+    afterSyntaxInfo?: EditSyntaxInfo;
+}
+
+/**
+ * A one-stop class to collect and pre-process edits for query
+ * with relevant syntax, diagnose and code-clone information
+ */
+class EditWatcher implements vscode.Disposable {
+    private languageSyntaxRecorder: LanguageSyntaxRecorder;
+    private editReducer: EditReducer;
+
+    constructor() {
+        this.languageSyntaxRecorder = new LanguageSyntaxRecorder();
+        this.editReducer = new EditReducer();
+    }
+
+    dispose() {
+        this.languageSyntaxRecorder.dispose();
+        this.editReducer.clearEditsAndSnapshots();
+    }
+
+    watch(uri: vscode.Uri) {
+        this.languageSyntaxRecorder.watch(uri);
+        this.editReducer.addSnapshot(uri.toString(), vscode.window.activeTextEditor?.document.getText() ?? "");
+    }
+
+    unwatch(uri: vscode.Uri) {
+        this.languageSyntaxRecorder.unwatch(uri);
+    }
+
+    clearHistory() {        
+        this.editReducer.clearEditsAndSnapshots();
+    }
+
+    /** 
+     * Take a snapshot, compute, update and return the new edits 
+     * 
+     * @param withSyntaxInfo the URI string of the file to be updated
+     * @param lastOnly if true, only the last edit will have its syntax information collected
+     * @returns  each edit with its before and after syntax information
+     */
+    async collectEditsWithMatchedSyntaxInfo(withSyntaxInfo: boolean = true, lastOnly: boolean = false): Promise<EditWithSyntaxInfo[]> {
+        await this.editReducer.updateEdits();
+        let edits = await this.editReducer.getEditList();
+        if (lastOnly) {
+            edits = edits.slice(-1);
+        }
+
+        const defInfoMap = this.languageSyntaxRecorder.getDefInfoMap();
+        const refInfoMap = this.languageSyntaxRecorder.getRefInfoMap();
+        const renameInfoMap = this.languageSyntaxRecorder.getRenameInfoMap();
+        
+        // Take the best-match syntax info for the before and after version of each edit
+        
+        let changes: EditWithSyntaxInfo[] = edits.map(edit => ({
+            edit: edit
+        }));
+        if (withSyntaxInfo) {
+            const collectMatchedSyntaxInfo = (edit: EditWithTimestamp) => {
+                const lastSnapshotTimestamp = this.editReducer.latestUpdateTimestamp.get(edit.uriString) ?? 0;   // if there has not recorded a timestamp, use the earliest info ever matched
+    
+                // NOTE for technical reason, we can only know the timestamp when the edit took place, not the timestamp of the version before edit
+                // so how can we try out best to guarantee the consistency of `lastSnapshotTimestamp` with of the version before edit?
+    
+                const beforeEditInfo = {
+                    def: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.rmText[0] ?? '', lastSnapshotTimestamp, defInfoMap),
+                    ref: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.rmText[0] ?? '', lastSnapshotTimestamp, refInfoMap),
+                    rename: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.rmText[0] ?? '', lastSnapshotTimestamp, renameInfoMap)
+                };
+                
+                const afterEditInfo = {
+                    def: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.addText[0] ?? '', edit.timestamp, defInfoMap),
+                    ref: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.addText[0] ?? '', edit.timestamp, refInfoMap),
+                    rename: this.findEditMatchedSyntaxInfo(edit.uriString, edit.line, edit.addText[0] ?? '', edit.timestamp, renameInfoMap)
+                };
+    
+                return {
+                    edit: edit,
+                    beforeSyntaxInfo: beforeEditInfo,
+                    afterSyntaxInfo: afterEditInfo
+                };
+            };
+
+            if (lastOnly && changes.length > 0) {
+                changes.splice(-1, 1, collectMatchedSyntaxInfo(changes[0].edit));
+            } else {
+                changes = changes.map(change => collectMatchedSyntaxInfo(change.edit));
+            }
+        }
+        
+        return changes;
+    }
+
+    private findEditMatchedSyntaxInfo<T>(uri: string, line: number, lineText: string, timestamp: number, map: SyntaxInfoMap<T>): [SyntaxInfoEntryHeader, T][] {
+        const matchedRecords: [SyntaxInfoEntryHeader, T][] = [];
+
+        const uriEntry = map.map.get(uri);
+        if (!uriEntry) return matchedRecords;
+
+        const lineEntry = uriEntry.get(line);
+        if (!lineEntry) return matchedRecords;
+
+        for (const recordEntrySet of lineEntry.values()) {
+            // Maybe we needn't sort here? ... If we assume, by nature, that the recordEntrySet is in insertion order
+            const descTimeRecords = Array.from(recordEntrySet).sort((a, b) => b[0].timestamp - a[0].timestamp);
+
+            for (const [header, record] of descTimeRecords) {
+                if (header.identifierRange.start.line === line && header.lineSnapshot === lineText && header.timestamp <= timestamp) {
+                    matchedRecords.push([header, record]);
+                    continue;
+                }
+            }
+        }
+
+        return matchedRecords;
+    }
+}
+
+interface CategorizedLspFoundLocations {
+    def: RequestLspFoundLocation[];
+    ref: RequestLspFoundLocation[];
+    rename: RequestLspFoundLocation[];
+    clone: RequestLspFoundLocation[];
+}
+
+interface SyntaxInfoEntryHeader {
+    /** The word range of the identifier when recorded */
+    identifierRange: vscode.Range;
+    /** The identifier text */
+    identifier: string;
+    /** The snapshot of the line at the beginning of the range */
+    lineSnapshot: string;
+    /** Unix timestamp */
+    timestamp: number;
+}
+
+export interface CodeRangeInFile {
+    uri: vscode.Uri;
+    range: vscode.Range;
+}
+
+export interface CodeRangesInFile {
+    uri: vscode.Uri;
+    ranges: vscode.Range[];
+}
+
+interface DefInfo {
+    allDefs: CodeRangeInFile[]
+}
+
+interface RefInfo {
+    allRefs: CodeRangeInFile[]
+}
+
+interface RenameInfo {
+    allRenameRanges: CodeRangesInFile[]
+}
+
+// This is substituted with the type [Uri, Diagnose][] in VS Code API 
+// interface DiagnoseInfo {
+//     severity: string,
+//     message: string,
+//     range: {
+//         line: number,
+//         character: number
+//     }[],
+//     source: string,
+//     code: {
+//         value: string,
+//         target: vscode.Uri
+//     }
+// }
+
+interface DocumentSymbolInfo {
+    name: string;
+    selectionRange: vscode.Range;
+    range: vscode.Range;
+    children: DocumentSymbolInfo[];
+}
+
+class SyntaxInfoMap<T> {
+    map: Map<string, Map<number, Map<string, Set<[SyntaxInfoEntryHeader, T]>>>>;
+
+    constructor() {
+        this.map = new Map();
+    }
+
+    addRecord(uri: string, line: number, header: SyntaxInfoEntryHeader, record: T) {
+        let uriEntry = this.map.get(uri);
+        if (!uriEntry) {
+            uriEntry = new Map();
+            this.map.set(uri, uriEntry);
+        }
+
+        let lineEntry = uriEntry.get(line);
+        if (!lineEntry) {
+            lineEntry = new Map();
+            uriEntry.set(line, lineEntry);
+        }
+
+        const identifier = header.identifier;
+        let recordEntry = lineEntry.get(identifier);
+        if (!recordEntry) {
+            recordEntry = new Set();
+            lineEntry.set(identifier, recordEntry);
+            
+        }
+        for (const entry of recordEntry) {
+            if (entry[0].identifierRange.isEqual(header.identifierRange) && entry[0].lineSnapshot === header.lineSnapshot) {
+                recordEntry.delete(entry);
+            }
+        }
+
+        recordEntry.add([header, record]);
+    }
+
+    clear() {
+        this.map.clear();
+    }
+}
+
+/**
+ * Record syntax information used for inference by polling,
+ * because current design of the LSP interface of VS Code API
+ * does not support an "undo" to inspect the symbol before change.
+ * 
+ * We take records of the following information:
+ * + Definition
+ * + Reference
+ * + Rename
+ * 
+ * Details on the contents of each entry:
+ * + For consistency with the previous edit, we only check if the line contents at
+ * the same line number are the same. That is, for each entry,
+ * we also record the line snapshot, i.e. the content and position of the line.
+ * + For deduplication, we keep one copy for each identical line snapshot.
+ * This may require more memory but provide more flexibility when matching together
+ * with used edits.
+ * 
+ * NOTE There are certainly some limitations on the mechanism of selection change detection:
+ * + We only record the first selection range at selection change.
+ * + We cannot detect selection change when keying `delete`, but we
+ * assume that for most time it doesn't matter.
+ * + We only use `selection.start` to and `getWordAtPosition` to determine the identifier.
+ * 
+ * NOTE Other known limitations:
+ * + We only export the first def/ref/rename result, although we record all results of them.
+ */
+class LanguageSyntaxRecorder implements vscode.Disposable {
+    /** Identified with URI string */
+    private watchedFiles: Set<string>;
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    private defInfoMap: SyntaxInfoMap<DefInfo>;     // assume that "JS set iterator is in insertion order" is true
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    private refInfoMap: SyntaxInfoMap<RefInfo>;
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    private renameInfoMap: SyntaxInfoMap<RenameInfo>;
+
+    private _watchSelectionChangeDisposable: vscode.Disposable | undefined;
+
+    constructor() {
+        this.watchedFiles = new Set();
+        this.defInfoMap = new SyntaxInfoMap<DefInfo>();
+        this.refInfoMap = new SyntaxInfoMap<RefInfo>();
+        this.renameInfoMap = new SyntaxInfoMap<RenameInfo>();
+
+        this._watchSelectionChangeDisposable =
+            vscode.window.onDidChangeTextEditorSelection(async e => {
+                const uriString = e.textEditor.document.uri.toString();
+
+                if (this.watchedFiles.has(uriString)) {
+                    const selection = e.textEditor.selection;
+                    await this.fetchSyntaxInfo(e.textEditor.document, e.textEditor.document.uri, selection);
+                }
+            });
+    }
+
+    dispose() {
+        this.defInfoMap.clear();
+        this.refInfoMap.clear();
+        this.renameInfoMap.clear();
+
+        this.watchedFiles.clear();
+        this._watchSelectionChangeDisposable?.dispose();
+    }
+
+    watch(uri: vscode.Uri) {
+        this.watchedFiles.add(uri.toString());
+    }
+
+    unwatch(uri: vscode.Uri) {
+        this.watchedFiles.delete(uri.toString());
+    }
+
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    getDefInfoMap() {
+        return this.defInfoMap;
+    }
+
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    getRefInfoMap() {
+        return this.refInfoMap;
+    }
+
+    /** Identified with URI string, indexed as [URI String] -> [Line Number] -> [Identifier] */
+    getRenameInfoMap() {
+        return this.renameInfoMap;
+    }
+
+    private async fetchSyntaxInfo(doc: vscode.TextDocument, uri: vscode.Uri, selection: vscode.Selection) {
+        const uriString = uri.toString();
+
+        const line = selection.start.line;
+        const identifierRange = doc.getWordRangeAtPosition(selection.start) ?? new vscode.Range(selection.start, selection.end);
+        const identifier = doc.getText(doc.getWordRangeAtPosition(selection.start));
+
+        const header: SyntaxInfoEntryHeader = {
+            identifierRange: identifierRange,
+            identifier: identifier,
+            lineSnapshot: getLineTextWithLineEnding(doc, line),
+            timestamp: Date.now()
+        };
+
+        const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+        if (def.length > 0) {
+            const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
+
+            const entry = {
+                allDefs: fullDefRanges
+            } as DefInfo;
+            this.defInfoMap.addRecord(uriString, line, header, entry);
+        }
+        
+        const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+        if (ref.length > 0) {
+            const entry = {
+                allRefs: ref
+            } as RefInfo;
+            this.refInfoMap.addRecord(uriString, line, header, entry);
+        }
+  
+        // Rename provider may throw an error from the promise
+        try {
+            const rename = await this.debounceRenameQuery(uri, identifierRange.start);
+            if (rename && Array.isArray(rename) && rename.length > 0) {
+                const entry = {
+                    allRenameRanges: rename as CodeRangesInFile[]
+                } as RenameInfo;
+                this.renameInfoMap.addRecord(uriString, line, header, entry);
+            }
+        } catch (err) {
+            console.warn('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    private async expandToFullDefinitionRanges(identifier: string, ranges: CodeRangeInFile[]): Promise<CodeRangeInFile[]> {
+        const matchedRanges: CodeRangeInFile[] = [];
+        for (const range of ranges) {
+            const rootInfoArray = await this.fetchDocumentSymbolInfo(range.uri);
+            const matchedInfo = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfoArray, identifier, range.range);
+            if (matchedInfo) {
+                matchedRanges.push(range);
+            }
+        }
+        
+        return matchedRanges;
+    }
+
+    private findRecursivelyMatchedDocumentSymbolInfo(infoArray: DocumentSymbolInfo[], identifier: string, range: vscode.Range): DocumentSymbolInfo | undefined {
+        for (const rootInfo of infoArray) {
+            if (rootInfo.name === identifier && rootInfo.range.isEqual(range)) {
+                return rootInfo;
+            }
+            const matchedChild = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfo.children, identifier, range);
+            if (matchedChild) {
+                return matchedChild;
+            }
+        }
+        return undefined;
+    }
+
+    private async fetchDocumentSymbolInfo(uri: vscode.Uri): Promise<DocumentSymbolInfo[]> {
+        const symbolInfo: DocumentSymbolInfo[] = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
+        return symbolInfo;
+    }
+
+    private debounceDefQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
+        return await vscode.commands.executeCommand('vscode.executeDefinitionProvider', uri, position);
+    }, 200);
+
+    private debounceRefQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
+        return await vscode.commands.executeCommand('vscode.executeReferenceProvider', uri, position);
+    }, 200);
+
+    private debounceRenameQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
+        try {
+            return await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider', uri, position, 'placeholder');
+        } catch (err) {
+            console.trace('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
+            return undefined;
+        } 
+    }, 200);
+}
+
+// class EditRecorder implements vscode.Disposable {
+//     /** Identified with URI string */
+//     private watchedFiles: Set<string>;
+//     private _watchDisposable: vscode.Disposable | undefined;
+
+//     constructor() {
+//         this.watchedFiles = new Set();
+//     }
+
+//     dispose() {
+//     }
+
+//     watch(uri: vscode.Uri) {
+//         this.watchedFiles.add(uri.toString());
+//     }
+
+//     unwatch(uri: vscode.Uri) {
+//         this.watchedFiles.delete(uri.toString());
+//     }
+    
+// }
 
 // TODO add tests for this
-class EditDetector {
+class EditReducer {
+    /** Limit of atomic edits that are kept */
     editLimit: number;
-    textBaseSnapshots: Map<any, any>;
-    editList: Edit[];
+    /** Snapshots of previous editions of each file (indexed with URI string) which editList is APPLIED AFTER, i.e. BEFORE EDIT APPLIED */
+    textBaseSnapshots: Map<string, string>;
+    /** Timestamp of the latest update to the textBaseSnapshots */    
+    latestUpdateTimestamp: Map<string, number>;
+    /** Edits that have taken place since textBaseSnapshots */
+    editList: EditWithTimestamp[];
     
     constructor() {
         this.editLimit = 10;
         this.textBaseSnapshots = new Map();
-
-        /**
-         * Edit list, in which all edits are based on `textBaseSnapshots`, is like:
-         * [
-         * 		{
-         * 			"path": string, the file path,
-         * 			"s": int, starting line,
-         * 			"rmLine": int, number of removed lines, 
-         * 			"rmText": string or null, removed text, could be null
-         * 			"addLine": int, number of added lines,
-         * 			"addText": string or null, added text, could be null,
-         *          "codeAbove": string, content above the edited text, up to 3 lines
-         *          "codeBelow": string, content below the edited text, up to 3 lines
-         * 		},
-         * 		...
-         * ]
-         */
+        this.latestUpdateTimestamp = new Map();
+        this.editList = [];
+    }
+    
+    clearEditsAndSnapshots() {
+        this.textBaseSnapshots = new Map();
+        this.latestUpdateTimestamp = new Map();
         this.editList = [];
     }
 
-    getEditedHunks(path: string): FileAsHunks | null {
+    hasSnapshot(path: string) {
+        return this.textBaseSnapshots.has(path);
+    }
+
+    addSnapshot(path: string, text: string) {
+        if (!this.hasSnapshot(path)) {
+            this.textBaseSnapshots.set(path, text);
+            this.latestUpdateTimestamp.set(path, Date.now());
+        }
+    }
+
+    async updateAllDocumentSnapshots() {
+        const openedDocuments = getOpenedFilePaths();
+
+        // need to fetch text from opened editors
+        for (const [uriString,] of this.textBaseSnapshots) {
+            try {
+                const text = await getStagedFile(openedDocuments, vscode.Uri.parse(uriString).fsPath);
+                this.updateEditsOnFile(uriString, text);
+            } catch (err) {
+                console.warn(`Using saved version: cannot update snapshot on ${uriString}`);
+            }
+        }
+        this.shiftEdits();
+    }
+
+    updateEditsOnFile(uriString: string, text: string) {
+        const snapshot = this.textBaseSnapshots.get(uriString);
+        if (snapshot === undefined) return;
+
+        // Compare old `editList` with new diff on a document
+        // All new diffs should be added to edit list, but merge the overlapped/adjoined to the old ones of them
+        // Merge "-" (removed) diff into an overlapped/adjoined old edit
+        // Merge "+" (added) diff into an old edit only if its precedent "-" hunk (a zero-line "-" hunk if there's no) wraps the old edit's "-" hunk
+        // By default, there could only be zero or one "+" hunk following a "-" hunk
+        
+        // Prepare all the old edits on the path
+        const oldEditsWithIdx: { idx: number, edit: EditWithTimestamp }[] = [];
+        const oldEditIndices = new Set();
+        this.editList.forEach((edit, idx) => {
+            if (edit.uriString === uriString) {
+                oldEditsWithIdx.push({
+                    idx: idx,
+                    edit: edit
+                });
+                oldEditIndices.add(idx);
+            }
+        });
+        oldEditsWithIdx.sort((edit1, edit2) => edit1.edit.line - edit2.edit.line);	// sort in starting line order
+        
+        // Maintain a new list about old edits that are kept
+        const oldAdjustedEditsWithIdx = new Map();
+
+        // Compute new edits from the snapshot after old edits
+        const newDiffs = diffLines(
+            snapshot,
+            text
+        );
+        const newEdits: EditWithTimestamp[] = [];
+
+        const lines = text.split('\n');
+
+        let lastLine = 0;
+        let oldEditIdx = 0;
+
+        function createEdit(rmDiff?: Change, addDiff?: Change) {
+            // construct new edit
+            const newEdit: EditWithTimestamp = {
+                uriString: uriString,
+                line: lastLine,
+                rmLine: rmDiff?.count ?? 0,
+                rmText: splitLines(rmDiff?.value ?? "", false),
+                addLine: addDiff?.count ?? 0,
+                addText: splitLines(addDiff?.value ?? "", false),
+                codeAbove: [] as string[],
+                codeBelow: [] as string[],
+                timestamp: Date.now()
+            };
+
+            // Validation
+            // if (newEdit.addLine != newEdit.addText.length || newEdit.rmLine != newEdit.rmText.length) {
+            //     console.error("Error encountered at constructing edit.")
+            // }
+                
+            // Find context
+            const fromLine = lastLine;
+            const toLine = lastLine + (addDiff?.count ?? 0);
+            const startAbove = Math.max(0, fromLine - 4);
+            const endAbove = Math.max(0, fromLine - 1);
+            const startBelow = toLine;
+            const endBelow = Math.min(lines.length, toLine + 3);
+    
+            newEdit.codeAbove = lines.slice(startAbove, endAbove);
+            newEdit.codeBelow = lines.slice(startBelow, endBelow);
+
+            return newEdit;
+        }
+
+        function pushOldEditMerge(newEdit: EditWithTimestamp) {
+            const newEditToLine = newEdit.line + newEdit.rmLine;
+
+            // skip to the first old edit that is probably involved
+            while (
+                oldEditIdx < oldEditsWithIdx.length &&
+                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine < newEditToLine
+            ) {
+                ++oldEditIdx;
+                oldAdjustedEditsWithIdx.set(oldEditsWithIdx[oldEditIdx].idx, oldEditsWithIdx[oldEditIdx].edit);
+            }
+    
+            // if the first involved old edit is overlapped/adjoined with this diff
+            // replace all the overlapped/adjoined old edits with the new edit
+            const fromIdx = oldEditIdx;
+            while (
+                oldEditIdx < oldEditsWithIdx.length &&
+                oldEditsWithIdx[oldEditIdx].edit.line <= newEditToLine
+            ) {
+                ++oldEditIdx;
+            }
+
+            if (oldEditIdx > fromIdx) {
+                const minIdx = Math.max.apply(
+                    null,
+                    oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
+                );
+                oldAdjustedEditsWithIdx.set(minIdx, newEdit);
+            } else {
+                newEdits.push(newEdit);
+            }
+        }
+
+        for (let i = 0; i < newDiffs.length; ++i) {
+            const diff = newDiffs[i];
+
+            let edit: EditWithTimestamp | undefined;
+            if (diff.removed) {
+                // unite the following "+" (added) diff
+                if (i + 1 < newDiffs.length && newDiffs[i + 1].added) {
+                    edit = createEdit(diff, newDiffs[i + 1]);
+                    ++i;
+                } else {
+                    edit = createEdit(diff, undefined);
+                }
+            } else if (diff.added) {
+                // deal with a "+" diff not following a "-" diff
+                edit = createEdit(undefined, diff);
+            }
+
+            if (edit) {
+                pushOldEditMerge(edit);
+            }
+
+            // now lastLine represents after-edit snapshot line number
+			if (!(diff.removed)) {
+				lastLine += diff.count ?? 0;
+			}
+        }
+
+        // Rearrange the whole edit list,
+        // only modifying those affected in the old adjusted edits of that path
+        const oldAdjustedEdits: EditWithTimestamp[] = [];
+        this.editList.forEach((edit, idx) => {
+            if (oldEditIndices.has(idx)) {
+                if (oldAdjustedEditsWithIdx.has(idx)) {
+                    oldAdjustedEdits.push(oldAdjustedEditsWithIdx.get(idx));
+                }
+			} else {
+				oldAdjustedEdits.push(edit);
+			}
+		});
+
+		this.editList = oldAdjustedEdits.concat(newEdits);
+    }
+
+    // Shift editList if out of capacity
+    // For every overflown edit, apply it and update the document snapshots on which the edits base
+    shiftEdits(numShifted?: number) {
+        // filter all removed edits
+        const numRemovedEdits = numShifted ?? this.editList.length - this.editLimit;
+        if (numRemovedEdits <= 0) {
+            return;
+        }
+        const removedEdits = new Set(this.editList.slice(
+            0,
+            numRemovedEdits
+        ));
+		
+		
+		// for each file involved in the removed edits
+        const affectedUriSet = new Set(
+			[...removedEdits].map((edit) => edit.uriString)
+			);
+		for (const uriString of affectedUriSet) {
+            const snapshot = this.textBaseSnapshots.get(uriString);
+            if (!snapshot) continue;
+
+			const editsOnPath = this.editList
+				.filter((edit) => edit.uriString === uriString)
+				.sort((edit1, edit2) => edit1.line - edit2.line);
+				
+			// execute removed edits
+			const removedEditsOnPath = editsOnPath.filter((edit) => removedEdits.has(edit));
+            this.performEdits(uriString, snapshot, removedEditsOnPath);
+			
+			// rebase other edits in file
+			let offsetLines = 0;
+			for (let edit of editsOnPath) {
+				if (removedEdits.has(edit)) {
+					offsetLines = offsetLines - edit.rmLine + edit.addLine;
+				} else {
+					edit.line += offsetLines;
+				}
+			}
+        }
+
+        this.editList.splice(0, numRemovedEdits);
+    }
+
+    async updateEdits() {
+        await this.updateAllDocumentSnapshots();
+    }
+
+    /**
+     * Return edit list in such format:
+     * [
+     * 		{
+     * 			"beforeEdit": string, the deleted hunk, could be null;
+     * 			"afterEdit": string, the added hunk, could be null;
+     * 		},
+     * 		...
+     * ]
+     */
+    async getSimpleEditList() {
+        return this.editList.map((edit) => ({
+			"beforeEdit": edit.rmText,
+            "afterEdit": edit.addText,
+        }));
+    }
+
+    async getEditList() {
+        return this.editList;
+    }
+
+    // Obsolete: old style edit fetcher
+
+    // async updateAndGetSimpleEditList() {
+    //     await this.updateEdits();
+    //     return await this.getSimpleEditList();
+    // }
+
+    // async updateAndGetEditList() {
+    //     await this.updateEdits();
+    //     return await this.getEditList();
+    // }
+
+    computeEditedHunks(path: string): FileAsHunks | null {
         if (!this.textBaseSnapshots.has(path)) {
             return null;
         }
@@ -46,7 +975,7 @@ class EditDetector {
         
         const fileLastSnapshot = this.textBaseSnapshots.get(path) as string;
         const fileLastEdit = this.editList
-            .filter((edit) => edit.path === path)
+            .filter((edit) => edit.uriString === path)
             .sort((edit1, edit2) => edit1.line - edit2.line);
         
         const lines = splitLines(fileLastSnapshot);
@@ -80,280 +1009,47 @@ class EditDetector {
         return hunks;
     }
 
-    clearEditsAndSnapshots() {
-        this.textBaseSnapshots = new Map();
-        this.editList = [];
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            updateEditorState(activeEditor);
-        }
-    }
+    private performEdits(filePath: string, doc: string, edits: EditWithTimestamp[]) {
+        const lines = doc.match(/[^\r\n]*(\r?\n|\r\n|$)/g);
+        if (!lines) return;
 
-    hasSnapshot(path: string) {
-        return this.textBaseSnapshots.has(path);
-    }
+        const addedLines = Array(lines.length).fill("");
+        let latestEditTimestamp = 0;
 
-    addSnapshot(path: string, text: string) {
-        if (!this.hasSnapshot(path)) {
-            this.textBaseSnapshots.set(path, text);
-        }
-    }
-
-    async updateAllSnapshotsFromDocument(getDocument: (path: string) => Promise<string>) {
-        // need to fetch text from opened editors
-        for (const [path,] of this.textBaseSnapshots) {
-            try {
-                const text = await getDocument(path);
-                this.updateEditsOnFile(path, text);
-            } catch (err) {
-                console.warn(`Using saved version: cannot update snapshot on ${path}`);
+        for (const edit of edits) {
+            const s = edit.line - 1;  // zero-based starting line
+            for (let i = s; i < s + edit.rmLine; ++i) {
+                lines[i] = "";
             }
+            addedLines[s] = edit.addText ?? "";
+            latestEditTimestamp = Math.max(latestEditTimestamp, edit.timestamp);           
         }
-        this.shiftEdits(undefined);
-    }
-
-    updateEditsOnFile(path: string, text: string) {
-        // Compare old `editList` with new diff on a document
-        // All new diffs should be added to edit list, but merge the overlapped/adjoined to the old ones of them 
-        // Merge "-" (removed) diff into an overlapped/adjoined old edit
-        // Merge "+" (added) diff into an old edit only if its precedented "-" hunk (a zero-line "-" hunk if there's no) wraps the old edit's "-" hunk
-        // By default, there could only be zero or one "+" hunk following a "-" hunk
-        const newDiffs = diffLines(
-            this.textBaseSnapshots.get(path),
-            text
-        );
-        const oldEditsWithIdx: { idx: number, edit: Edit }[] = [];
-        const oldEditIndices = new Set();
-        this.editList.forEach((edit, idx) => {
-            if (edit.path === path) {
-                oldEditsWithIdx.push({
-                    idx: idx,
-                    edit: edit
-                });
-                oldEditIndices.add(idx);
-            }
-        });
         
-        oldEditsWithIdx.sort((edit1, edit2) => edit1.edit.line - edit2.edit.line);	// sort in starting line order
+        const afterText = lines
+            .map((x, i) => addedLines[i] + x)
+            .join("");
 
-        const oldAdjustedEditsWithIdx = new Map();
-        const newEdits: Edit[] = [];
-        let lastLine = 0;
-        let oldEditIdx = 0;
-
-        function mergeDiff(rmDiff?: Change, addDiff?: Change) {
-            const fromLine = lastLine;
-            const toLine = lastLine + (addDiff?.count ?? 0);
-
-            // construct new edit
-            const newEdit = {
-                "path": path,
-                "line": fromLine,
-                "rmLine": rmDiff?.count ?? 0,
-                "rmText": splitLines(rmDiff?.value ?? "", false),
-                "addLine": addDiff?.count ?? 0,
-                "addText": splitLines(addDiff?.value ?? "", false),
-                "codeAbove": [] as string[],
-                "codeBelow": [] as string[]
-            };
-            if (newEdit.addLine != newEdit.addText.length || newEdit.rmLine != newEdit.rmText.length) {
-                console.error("Error encountered at constructing edit.")
-            }
-
-            // Find context
-            const lines = text.split('\n');
-            const startAbove = Math.max(0, fromLine - 4);
-            const endAbove = Math.max(0, fromLine - 1);
-            const startBelow = toLine;
-            const endBelow = Math.min(lines.length, toLine + 3);
-
-            // Get the lines above and below
-            newEdit.codeAbove = lines.slice(startAbove, endAbove);
-            newEdit.codeBelow = lines.slice(startBelow, endBelow);
-
-            // skip all old edits between this diff and the last diff
-            while (
-                oldEditIdx < oldEditsWithIdx.length &&
-				oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine < fromLine
-            ) {
-                ++oldEditIdx;
-                // oldAdjustedEditsWithIdx.push(oldEditsWithIdx[oldEditIdx]);
-            }
-
-            // if current edit is overlapped/adjoined with this diff
-			if (
-				oldEditIdx < oldEditsWithIdx.length &&
-				oldEditsWithIdx[oldEditIdx].edit.line <= toLine
-			) {
-                // replace the all the overlapped/adjoined old edits with the new edit
-                const fromIdx = oldEditIdx;
-                while (
-                    oldEditIdx < oldEditsWithIdx.length &&
-                    oldEditsWithIdx[oldEditIdx].edit.line <= toLine
-                ) {
-                    ++oldEditIdx;
-                }
-                // use the maximum index of the overlapped/adjoined old edits	---------->  Is it necessary?
-                const minIdx = Math.max.apply(
-                    null,
-                    oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
-                );
-                oldAdjustedEditsWithIdx.set(minIdx, newEdit);
-				// // skip the edit
-				// ++oldEditIdx;
-            } else {
-                // simply add the edit as a new edit
-                newEdits.push(newEdit);
-            }
-        }
-
-        for (let i = 0; i < newDiffs.length; ++i) {
-            const diff = newDiffs[i];
-
-            if (diff.removed) {
-                // unite the following "+" (added) diff
-                if (i + 1 < newDiffs.length && newDiffs[i + 1].added) {
-                    mergeDiff(diff, newDiffs[i + 1]);
-                    ++i;
-                } else {
-                    mergeDiff(diff, undefined);
-                }
-            } else if (diff.added) {
-                // deal with a "+" diff not following a "-" diff
-                mergeDiff(undefined, diff);
-            }
-
-            // now lastLine represents after-edit snapshot line number
-			if (!(diff.removed)) {
-				lastLine += diff.count ?? 0;
-			}
-        }
-
-        const oldAdjustedEdits: Edit[] = [];
-		this.editList.forEach((edit, idx) => {
-			if (oldEditIndices.has(idx)) {
-				if (oldAdjustedEditsWithIdx.has(idx)) {
-					oldAdjustedEdits.push(oldAdjustedEditsWithIdx.get(idx));
-				}
-			} else {
-				oldAdjustedEdits.push(edit);
-			}
-		});
-
-		this.editList = oldAdjustedEdits.concat(newEdits);
-    }
-
-    // Shift editList if out of capacity
-    // For every overflown edit, apply it and update the document snapshots on which the edits base
-    shiftEdits(numShifted?: number) {
-        // filter all removed edits
-        const numRemovedEdits = numShifted ?? this.editList.length - this.editLimit;
-        if (numRemovedEdits <= 0) {
-            return;
-        }
-        const removedEdits = new Set(this.editList.slice(
-            0,
-            numRemovedEdits
-        ));
-		
-		function performEdits(doc: string, edits: Edit[]) {
-            const lines = doc.match(/[^\r\n]*(\r?\n|\r\n|$)/g);
-            if (!lines) return;
-
-			const addedLines = Array(lines.length).fill("");
-			for (const edit of edits) {
-				const s = edit.line - 1;  // zero-based starting line
-				for (let i = s; i < s + edit.rmLine; ++i) {
-					lines[i] = "";
-				}
-				addedLines[s] = edit.addText ?? "";
-			}
-			return lines
-                .map((x, i) => addedLines[i] + x)
-                .join("");
-		}
-		
-		// for each file involved in the removed edits
-        const affectedPaths = new Set(
-			[...removedEdits].map((edit) => edit.path)
-			);
-		for (const filePath of affectedPaths) {
-			const doc = this.textBaseSnapshots.get(filePath);
-			const editsOnPath = this.editList
-				.filter((edit) => edit.path === filePath)
-				.sort((edit1, edit2) => edit1.line - edit2.line);
-				
-			// execute removed edits
-			const removedEditsOnPath = editsOnPath.filter((edit) => removedEdits.has(edit));
-			this.textBaseSnapshots.set(filePath, performEdits(doc, removedEditsOnPath));
-			
-			// rebase other edits in file
-			let offsetLines = 0;
-			for (let edit of editsOnPath) {
-				if (removedEdits.has(edit)) {
-					offsetLines = offsetLines - edit.rmLine + edit.addLine;
-				} else {
-					edit.line += offsetLines;
-				}
-			}
-        }
-
-        this.editList.splice(0, numRemovedEdits);
-    }
-
-    /**
-     * Return edit list in such format:
-     * [
-     * 		{
-     * 			"beforeEdit": string, the deleted hunk, could be null;
-     * 			"afterEdit": string, the added hunk, could be null;
-     * 		},
-     * 		...
-     * ]
-     */
-    async getSimpleEditList() {
-        return this.editList.map((edit) => ({
-			"beforeEdit": edit.rmText,
-            "afterEdit": edit.addText,
-        }));
-    }
-
-    async getEditList() {
-        return this.editList;
-    }
-
-    async updateEditList() {
-        const openedDocuments = getOpenedFilePaths();
-        const docGetter = async (filePath: string) => {
-            return await getStagedFile(openedDocuments, filePath);
-        };
-        await this.updateAllSnapshotsFromDocument(docGetter);
-    }
-
-    async getUpdatedSimpleEditList() {
-        await this.updateEditList();
-        return await this.getSimpleEditList();
-    }
-
-    async getUpdatedEditList() {
-        await this.updateEditList();
-        return await this.getEditList();
+        this.textBaseSnapshots.set(filePath, afterText);
     }
 }
 
-export const globalEditDetector = new EditDetector();
+// Obsolete: old style edit fetcher
+// export const globalEditDetector = new EditReducer();
+
+export const globalEditInfoCollector = new WorkspaceEditInfoCollector();
 
 export function updateEditorState(editor: vscode.TextEditor | undefined) {
     if (!editor) globalEditorState.inDiffEditor = false;
     else globalEditorState.inDiffEditor = (vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputTextDiff);
+    
     globalEditorState.language = vscode.window.activeTextEditor?.document?.languageId.toLowerCase() ?? "unknown";
+    
     statusBarItem.setStatusDefault(true);
 
     // update file snapshot
     const currUri = editor?.document?.uri;
-    const currPath = currUri?.fsPath;
-    if (currUri && currUri.scheme === "file" && currPath && !(globalEditDetector.hasSnapshot(currPath))) {
-        globalEditDetector.addSnapshot(currPath, editor.document.getText());
+    if (currUri && currUri.scheme === "file" && currUri) {
+        globalEditInfoCollector.watch(currUri);
     }
 
     let isEditDiff = false;
@@ -364,9 +1060,7 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
             && input.modified.scheme === 'file') || (input.textDiffs ? true : false);
     }
 
-    console.log(`toPredictLocation: ${globalEditorState.toPredictLocation}`);
-    console.log(`length: ${globalQueryContext.getLocations()?.length}`);
-    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAcception") && globalEditorState.toPredictLocation && !(globalQueryContext.getLocations()?.length)) {
+    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation && !(globalQueryContext.getLocations()?.length)) {
         vscode.commands.executeCommand("navEdit.predictLocations");
         globalEditorState.toPredictLocation = false;
     }
@@ -377,8 +1071,71 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
 export class FileStateMonitor extends DisposableComponent {
     constructor() {
         super();
+
+        // TODO globalEditInfoCollector should belong to the FileStateMonitor
+
+        // Watch all opened text documents at creation of this monitor
+        globalEditInfoCollector.watchAllOpened();
+
         this.register(
-            vscode.window.onDidChangeActiveTextEditor(updateEditorState)
+            vscode.window.onDidChangeActiveTextEditor(updateEditorState),
+            vscode.workspace.onDidOpenTextDocument((textDocument) => {
+                if (textDocument.uri.scheme === "file") {
+                    globalEditInfoCollector.watch(textDocument.uri);
+                }
+            }),
+            vscode.workspace.onDidCloseTextDocument((textDocument) => {
+                if (textDocument.uri.scheme === "file") {
+                    globalEditInfoCollector.unwatch(textDocument.uri);
+                }
+            }),
         );
     }
+}
+
+export function convertToRequestEdit(editWithTimestamp: EditWithTimestamp): RequestEdit {
+    const {
+        line,
+        rmLine,
+        rmText,
+        addLine,
+        addText,
+        codeAbove,
+        codeBelow
+    } = editWithTimestamp;
+
+    const requestEdit: RequestEdit = {
+        line,
+        rmLine,
+        rmText,
+        addLine,
+        addText,
+        codeAbove,
+        codeBelow,
+        path: vscode.Uri.parse(editWithTimestamp.uriString).fsPath
+    };
+
+    return requestEdit;
+}
+
+function debounced<T extends (...args: any[]) => Promise<any>>(func: T, wait: number): T {
+    let timeout: NodeJS.Timeout;
+    return function (this: any, ...args: any[]): Promise<any> {
+        return new Promise((resolve) => {
+            const context = this;
+            clearTimeout(timeout);
+            timeout = setTimeout(async () => {
+                const result = await func.apply(context, args);
+                resolve(result);
+            }, wait);
+        });
+    } as T;
+}
+
+function getLineTextWithLineEnding(doc: vscode.TextDocument, line: number) {
+    const rangeStart = doc.lineAt(line).range.start;
+    const rangeEnd = line >= doc.lineCount - 1
+        ? doc.lineAt(line).range.end
+        : doc.lineAt(line + 1).range.start;
+    return doc.getText(new vscode.Range(rangeStart, rangeEnd));
 }

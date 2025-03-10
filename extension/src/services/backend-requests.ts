@@ -1,9 +1,74 @@
 import axios from 'axios';
 import vscode from 'vscode';
 import { DisposableComponent } from '../utils/base-component';
+import { RequestEdit } from '../utils/base-types';
 
-async function basicQuery(suffix: string, json_obj: any) {
-    return await modelServerProcess.request(suffix, json_obj);
+export type PreJudgedLspType = 'def&ref' | 'clone' | 'diagnose' | 'normal';
+export type ResponseInvokerLspType = 'def&ref' | 'clone' | 'rename' | 'normal';
+
+export type RequestLspFoundLocation = {
+    file_path: string;
+    start: {
+        line: number;
+        col: number;
+    };
+    end: {
+        line: number;
+        col: number;
+    };
+}
+
+export type ResponseEditLocationWithLabels = {
+    code_window_start_line: number;
+    inline_labels: string[];
+    inline_confidences: number[];
+    inter_labels: string[];
+    inter_confidences: number[];
+    service_name: PreJudgedLspType;
+}
+
+type GeneralRequestForInvokerAndLocator = {
+    language: string;
+    commitMsg: string;
+    prevEdits: RequestEdit[];
+    files: {
+        [key: string]: string[];
+    };
+    lspServiceName: PreJudgedLspType;
+    lspFoundLocations: RequestLspFoundLocation[];
+}
+
+export type RequestNavEditInvoker = GeneralRequestForInvokerAndLocator;
+export type RequestNavEditLocator = GeneralRequestForInvokerAndLocator;
+
+export type RequestGenerator = {
+    language: string;
+    filePath: string;
+    atLine: number;
+    codeWindow: string[];
+    interLabels: string[];
+    inlineLabels: string[];
+    commitMessage: string;
+    prevEdits: RequestEdit[];
+    prevEditType: PreJudgedLspType;
+    lspServiceName: PreJudgedLspType;
+};
+
+export type ResponseNavEditInvoker = {
+    type: ResponseInvokerLspType;
+    info: object;
+} | ResponseNavEditLocator;
+
+export type ResponseNavEditLocator = {
+    files: {
+        [key: string]: ResponseEditLocationWithLabels[];
+    }
+};
+
+export type ResponseGenerator = string[];   // TODO need confidence here
+
+async function basicQuery(path: string, json_obj: any) {
+    return await modelServerProcess.request(path, json_obj);
 }
 
 async function postRequestToDiscriminator(json_obj: any) {
@@ -14,16 +79,16 @@ async function postRequestToLocator(json_obj: any) {
     return await basicQuery("range", json_obj);
 }
 
-async function postRequestToNavEditInvoker(json_obj: any) {
-    return await basicQuery("navedit/invoker", json_obj);
+async function postRequestToNavEditInvoker(data: RequestNavEditInvoker): Promise<ResponseNavEditInvoker | undefined> {
+    return await basicQuery("navedit/invoker", data);
 }
 
-async function postRequestToNavEditLocator(json_obj: any) {
-    return await basicQuery("navedit/locator", json_obj);
+async function postRequestToNavEditLocator(data: RequestNavEditLocator): Promise<ResponseNavEditLocator | undefined> {
+    return await basicQuery("navedit/locator", data);
 }
 
-async function postRequestToGenerator(json_obj: any) {
-    return await basicQuery("content", json_obj);
+async function postRequestToGenerator(data: RequestGenerator): Promise<ResponseGenerator | undefined> {
+    return await basicQuery("content", data);
 }
 
 export {

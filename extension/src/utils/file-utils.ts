@@ -81,7 +81,7 @@ try {
 
 // BASIC FUNCTIONS
 
-function toDriveLetterLowerCasePath(filePath: string) {
+export function toDriveLetterLowerCasePath(filePath: string) {
     return fs.realpathSync.native(filePath);
 }
 
@@ -106,6 +106,18 @@ function getOpenedFilePaths(): Set<string> {
         for (const tab of tabGroup.tabs) {
             if (tab.input instanceof vscode.TabInputText) {
                 openedPaths.add(tab.input.uri.fsPath);
+            }
+        }
+    }
+    return openedPaths;
+}
+
+export function getOpenedFileUris(): Set<vscode.Uri> {
+    const openedPaths: Set<vscode.Uri> = new Set();
+    for (const tabGroup of vscode.window.tabGroups.all) {
+        for (const tab of tabGroup.tabs) {
+            if (tab.input instanceof vscode.TabInputText) {
+                openedPaths.add(tab.input.uri);
             }
         }
     }

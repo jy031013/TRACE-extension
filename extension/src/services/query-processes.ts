@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { createRenameRefactor, globalQueryContext } from '../global-result-context';
+import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
-import { BackendApiEditLocation, Edit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
+import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
+import { CodeRangesInFile } from '../editor-state-monitor';
 
 /* 
     The following is experimental code for wrapping backend request
@@ -333,52 +334,48 @@ async function requestAndUpdateLocation(
     }
 }
 
-async function requestAndUpdateLocationByNavEdit(
-    rootPath: string, 
-    files: [string, string | FileAsHunks][],
-    prevEdits: Edit[],
-    commitMessage: string, 
-    language: string
-) {
-    /* 
-        Locator:
-        input:
-        {
-            "files":            list, [[filePath, fileContent], ...],
-            "targetFilePath":   str, filePath,
-            "commitMessage":    str, edit description,
-            "prevEdits":        list, of previous edits, each in format: {"beforeEdit":"", "afterEdit":""}
-        }
-        output:
-        {
-            "data": 
-            [ 
-                { 
-                    "targetFilePath":   str, filePath,
-                    "toBeReplaced":     str, the content to be replaced, 
-                    "editType":         str, the type of edit, add or remove,
-                    "lineBreak":        str, '\n', '\r' or '\r\n',
-                    "atLines":           number, line number (beginning from 1) of the location
-                }, ...
-            ]
-        }
-     */
-    const activeFileAbsPath = getActiveFilePath();
-    if (!activeFileAbsPath) {
-        return;
-    }
-    
-    const activeFilePath = toRelPath(
-        rootPath,
-        activeFileAbsPath
-    );
+export interface CachedRenameOperation {
+    identifier: string;
+    ranges: CodeRangesInFile[];
+}
 
-    // Send to the discriminator model for analysis
-    const editedFilePaths = new Set(prevEdits.map((edit) => edit.path));
-    const invokerInput = {
-        files: files.filter(([path, _]) => editedFilePaths.has(path)),
+/**
+ * Determine and suggest where should the next edit(s)
+ * be made based on current workspace state.
+ * 
+ * @param files In the format of `[relativePath, fileRepresentation]`.
+ * Files those were not changed should be
+ * passed in as `string`, and those were changed should be `FileAsHunks`.
+ * 
+ * This is a representation that contains any necessary files used to judge potential
+ * new edits, with the information of the last edit.
+ * We assume the input only imply **a current** and **a previous**
+ * file state, then the last edit is the two-snapshot difference between 
+ * the current and previous files. 
+ * 
+ * @param prevEdits The previous edits, in the format of `Edit[]`. Although the edits were
+ * implied in `files` parameter, we use this another parameter for requesting the invoker model.
+ * @param commitMessage A message that describes the intention of the edit.
+ * @param language The language identifier based on VS Code of the current file.
+ * @returns An array, containing suggested locations with their extra info.
+ */
+async function requestLocationByNavEdit(
+    files: { [key: string]: string[] },
+    prevEdits: RequestEdit[],
+    commitMessage: string, 
+    language: string,
+    lspServiceName: PreJudgedLspType,
+    lspFoundLocations: RequestLspFoundLocation[],
+    cachedRenameOperation: CachedRenameOperation | undefined
+): Promise<['rename', Refactor] | ['location', LocatorLocation[]] | undefined> {
+
+    const invokerInput: RequestNavEditInvoker = {
+        language: language,
+        commitMsg: commitMessage,
         prevEdits: prevEdits,
-        language: language
+        files: files,
+        lspServiceName: lspServiceName,
+        lspFoundLocations: lspFoundLocations
     };
     statusBarItem.setStatusQuerying("locator");
     
@@ -386,129 +383,104 @@ async function requestAndUpdateLocationByNavEdit(
         return await postRequestToNavEditInvoker(invokerInput);
     });
 
-    /*
-        {
-            type: "rename" | "def&ref" | "clone" | "normal",
-            info: {
-                originalFile: "/relative/path/to/file",
-                originalLine: 123,
-                identifier?: "the-identifier-of-rename-def-ref-clone"
-            }
-        }
-    */
+    if (!invokerOutput) return undefined;
 
     // TODO add strict format check for each "valid type" of locatorOutput
-    if (invokerOutput?.type === 'rename' && invokerOutput?.data?.length) {
-        const refactorInfo = invokerOutput.info;
-        const renameRefactor = await createRenameRefactor(
-            refactorInfo.file,
-            refactorInfo.line,
-            refactorInfo.beforeText,
-            refactorInfo.afterText
-        );
-        if (renameRefactor) {
-            globalQueryContext.updateRefactor(renameRefactor);
+    if ('type' in invokerOutput && invokerOutput?.type === 'rename') {
+        // Old-fashion way, by intentional renaming twice to trigger rename provider
+
+        // const refactorInfo = invokerOutput.info;
+        // const renameRefactor = await createRenameRefactor(
+        //     refactorInfo.file,
+        //     refactorInfo.line,
+        //     refactorInfo.beforeText,
+        //     refactorInfo.afterText
+        // );
+        // if (renameRefactor) {
+        //     return ['rename', renameRefactor];
+        // }
+        
+        if (cachedRenameOperation) {
+            const renameRefactor = createDeterminedRenameRefactor(cachedRenameOperation.identifier, cachedRenameOperation.ranges);
+            return ['rename', renameRefactor];
+        } else {
+            console.trace('no cached rename operation found, nothing is done');
         }
-        return renameRefactor;
-    } else if (invokerOutput?.type === 'normal') {
-        const locatorInput = {
-            files: files,
-            commitMsg: commitMessage,
-            prevEdits: prevEdits,
-            language: language
-        };
+    } else if ('files' in invokerOutput) {
 
-        const locatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
-            return await postRequestToNavEditLocator(locatorInput);
-        });
-
-        const rawLocations = locatorOutput;
-        const convertedLocations: BackendApiEditLocation[] = [];
-        for (const path in rawLocations) {
-            const info = rawLocations[path];
-            const labels: [string, number, number][] = [];
-            info.inline_preds.forEach((label: string, index: number) => {
-                if (label === '<keep>')
-                    return;
-                if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
-                    labels.push([label, index, 0]);
-                }
-                const lastLabel = labels.at(-1);
-                if (lastLabel) {
-                    lastLabel[2] += 1;
-                }
-            });
-
-            for (const [label, start, lines] of labels) {
-                const _label = label.slice(1, -1);
-
-                convertedLocations.push({
-                    targetFilePath: path,
-                    // FIXME strip <delete> to delete should not use this way
-                    editType: _label === 'delete' ? 'remove' :
-                        _label === 'add' ? 'add' : 'replace',
-                    lineBreak: '\n',
-                    atLines: Array(lines).fill(0).map((_, i) => start + i),
-                    lineInfo: await getLineInfoInDocument(path, start)
+        const rawLocations = invokerOutput.files;
+        const convertedLocations: LocatorLocation[] = [];
+        for (const filePath in rawLocations) {
+            const editLocationsInFile = rawLocations[filePath];
+            for (const editLocation of editLocationsInFile) {
+                const labels: [string, number, number][] = [];
+                editLocation.inline_labels.forEach((label: string, index: number) => {
+                    if (label === '<keep>')
+                        return;
+                    if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
+                        labels.push([label, index, 0]);
+                    }
+                    const lastLabel = labels.at(-1);
+                    if (lastLabel) {
+                        lastLabel[2] += 1;
+                    }
                 });
+    
+                for (const [label, start, lines] of labels) {
+                    const _label = label.slice(1, -1);
+    
+                    convertedLocations.push({
+                        targetFilePath: filePath,
+                        // FIXME strip <delete> to delete should not use this way
+                        editType: _label === 'delete' ? 'remove' :
+                            _label === 'add' ? 'add' : 'replace',
+                        lineBreak: '\n',
+                        atLines: Array(lines).fill(0).map((_, i) => start + i),
+                        lineInfo: await getLineInfoInDocument(filePath, start)
+                    });
+                }
             }
         }
-        globalQueryContext.updateLocations(convertedLocations);
-        return rawLocations;   
+        
+        return ['location', convertedLocations]; 
     }
 }
 
-async function requestAndUpdateEdit(
-    fileContent: string,
-    editType: EditType,
-    atLines: number[],
-    prevEdits: SimpleEdit[],
+async function requestEdit(
+    language: string,
+    filePath: string,
+    atLine: number,
+    codeWindow: string[],
+    interLabels: string[],
+    inlineLabels: string[],
     commitMessage: string,
-    language: string
-) {
-    /* 	
-        Generator:
-        input:
-        { 
-            "targetFileContent":    string
-            "commitMessage":        string, edit description,
-            "editType":             string, edit type,
-            "prevEdits":            list, of previous edits, each in format: {"beforeEdit":"", "afterEdit":""},
-            "atLines":               list, of edit line indices
-            "language":             string, the language used (to select a language-specific model)
-        }
-        output:
-        {
-            "data": 
-            { 
-                "editType":         string, 'remove', 'add'
-                "replacement":      list of strings, replacement content   
-            }
-        } 
-    */       
-    const input = {
-        targetFileContent: fileContent,
+    prevEdits: RequestEdit[],
+    prevEditType: PreJudgedLspType,
+    lspServiceName: PreJudgedLspType
+): Promise<ResponseGenerator | undefined> {
+
+    const generatorInput: RequestGenerator = {
+        language: language,
+        filePath: filePath,
+        atLine: atLine,
+        codeWindow: codeWindow,
+        interLabels: interLabels,
+        inlineLabels: inlineLabels,
         commitMessage: commitMessage,
-        editType: editType,
         prevEdits: prevEdits,
-        atLines: atLines,
-        language: language
+        prevEditType: prevEditType,
+        lspServiceName: lspServiceName
     };
 
-    if (editType === "add") { // the model was designed to generate addition at next line, so move one line backward
-        atLines = atLines.map((l) => l > 0 ? l - 1 : 0);
-    }
-
-    const output = await postRequestToGenerator(input);
-
-    const result = output.data;
-    // new BackendApiEditGenerationJsonType().assert(result);
-
-    return result;
+    const generatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Generating...' }, async () => {
+        return await postRequestToGenerator(generatorInput);
+    });
+    
+    return generatorOutput;
 }
 
 export {
     requestAndUpdateLocation,
-    requestAndUpdateEdit,
-    requestAndUpdateLocationByNavEdit
+    requestEdit,
+    requestLocationByNavEdit
 };

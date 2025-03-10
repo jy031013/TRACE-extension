@@ -1,7 +1,7 @@
 import vscode from "vscode";
 import { PredictLocationCommand, GenerateEditCommand } from "./services/query-tasks";
 import { limitNum } from "./utils/utils";
-import { globalEditDetector } from "./editor-state-monitor";
+import { globalEditInfoCollector } from "./editor-state-monitor";
 import { FileEdits } from "./utils/base-types";
 import { createVirtualModifiedFileUri } from "./views/compare-view";
 // import { addUserStatItem } from "./global-context";
@@ -26,7 +26,7 @@ export function registerBasicCommands() {
 			editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 		}),
 		vscode.commands.registerCommand('navEdit.clearPrevEdits', async () => {
-			globalEditDetector.clearEditsAndSnapshots();
+			globalEditInfoCollector.clearHistory();
 			await vscode.window.showInformationMessage("Previous edits cleared!");
 			// addUserStatItem("clearPrevEdits");
 		}),

@@ -3,22 +3,63 @@ import { toPosixPath } from '../utils/file-utils';
 import { globalEditorState } from '../global-workspace-context';
 import { limitNum } from "../utils/utils";
 import path from 'path';
-import { BackendApiEditLocation } from '../utils/base-types';
-import { liveTextEditorEventHandler } from '../utils/vscode-utils';
+import { LocatorLocation } from '../utils/base-types';
+import { LiveTextEditorEventHandler } from '../utils/vscode-utils';
 
 const replaceBackgroundColor = 'rgba(255,0,0,0.3)';
 const addBackgroundColor = 'rgba(0,255,0,0.3)';
 const replaceIconPath = path.join(__dirname, '../media/edit-red.svg');
 const addIconPath = path.join(__dirname, '../media/add-green.svg');
 
+export type HighlightedLocation = {
+	type: 'add' | 'replace';
+	location: vscode.Location;
+}
+
 export class LocationResultDecoration {
 	private replaceDecorationType: vscode.TextEditorDecorationType;
 	private addDecorationType: vscode.TextEditorDecorationType;
-	private eventHandler: liveTextEditorEventHandler;
-	private locations: BackendApiEditLocation[];
+	private eventHandler: LiveTextEditorEventHandler;
+	private locations: HighlightedLocation[];
 
-	constructor(locations: BackendApiEditLocation[]) {
-		this.locations = locations;
+	constructor(options:
+		{
+			type: 'plain-location',
+			locations: HighlightedLocation[]
+		} |
+		{
+			type: 'original-locator-request',
+			locations: LocatorLocation[]
+		}
+	) {
+		if (options.type === 'original-locator-request') {
+			this.locations = options.locations.map((loc) => {
+				let startLine = loc.atLines[0];
+				let endLine = loc.atLines[loc.atLines.length - 1];
+
+				if (loc.editType === "add") {	// the model was designed to add content after the mark line
+					startLine += 1;
+					endLine += 1;
+				}
+
+				return {
+					location: new vscode.Location(
+						vscode.Uri.file(loc.targetFilePath),
+						new vscode.Range(
+							startLine,
+							0,
+							endLine,
+							Number.MAX_SAFE_INTEGER
+						)
+					),
+					type: loc.editType === "add" ? 'add' : 'replace'
+				};
+			});
+		} else if (options.type === 'plain-location') {
+			this.locations = options.locations;
+		} else {
+			this.locations = [];
+		}
 
 		this.replaceDecorationType = vscode.window.createTextEditorDecorationType({
 			backgroundColor: replaceBackgroundColor,
@@ -35,7 +76,7 @@ export class LocationResultDecoration {
 			gutterIconSize: "75%"
 		});
 
-		this.eventHandler = new liveTextEditorEventHandler(
+		this.eventHandler = new LiveTextEditorEventHandler(
 			this.refreshLocationDecorations,
 			this.clearDecorations,
 			this
@@ -52,23 +93,20 @@ export class LocationResultDecoration {
 
 		const uri = editor?.document?.uri;
 		if (!uri) return;
-
-		const filePath = toPosixPath(uri.fsPath);
-		if (uri.scheme !== 'file') return undefined;
+		if (uri.scheme !== 'file') return;
 
 		const decorationRangesForAlter: vscode.DecorationOptions[] = [];
 		const decorationRangesForAdd: vscode.DecorationOptions[] = [];
 	
 		this.locations
-			.filter((loc) => loc.targetFilePath === filePath)
-			.forEach((loc) => {
-				let startLine = loc.atLines[0];
-				let endLine = loc.atLines[loc.atLines.length - 1];
-				if (loc.editType === "add") {	// the model was designed to add content after the mark line
-					startLine += 1;
-					endLine += 1;
-				}
+			.filter((highlightedLocation) => highlightedLocation.location.uri.toString() === uri.toString())
+			.forEach((highlightedLocation) => {
+				const loc = highlightedLocation.location;
 
+				let startLine = loc.range.start.line;
+				let endLine = loc.range.end.line +
+					(loc.range.end.line > loc.range.start.line && loc.range.end.character === 0 ? -1 : 0);
+				
 				const document = editor.document;
 				startLine = limitNum(startLine, 0, document.lineCount - 1);
 				endLine = limitNum(endLine, 0, document.lineCount - 1);
@@ -83,7 +121,7 @@ export class LocationResultDecoration {
 				};
 		
 				// Add decoration to array
-				if (loc.editType === 'add') {
+				if (highlightedLocation.type === 'add') {
 					decorationRangesForAdd.push(decoration);
 				} else {
 					decorationRangesForAlter.push(decoration);
@@ -103,3 +141,6 @@ export class LocationResultDecoration {
 		this.eventHandler.dispose();
 	}
 }
+
+// TODO use different color for each line with different label
+export class NavEditLocationResultDecoration {}

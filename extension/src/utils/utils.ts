@@ -14,7 +14,7 @@ export function findFirstDiffPos(a: string, b: string) {
     return i;
 }
 
-export function generateTimeSepcificId() {
+export function generateTimeSpecificId() {
     return new Date().getTime().toString() + Math.floor(Math.random() * 1000).toString();
 }
 
@@ -37,4 +37,27 @@ export function splitLines(text: string, keepLastEmptyLine: boolean = true): str
     }
     
     return lines;
+}
+
+/**
+ * In an array representing several lines,
+ * based on some line, extract its block bounded by empty lines.
+ * @param lines Lines in a block/hunk.
+ * @param lineNum The base line to extract the block.
+ * @returns 
+ */
+export function extractBlock(lines: string[], lineNum: number): string[] {
+    if (lineNum >= lines.length) {
+        return [];
+    }
+
+    let start = lineNum;
+    let end = lineNum;
+    while (start > 0 && lines[start - 1].trim() !== "") {
+        start--;
+    }
+    while (end < lines.length - 1 && lines[end + 1].trim() !== "") {
+        end++;
+    }
+    return lines.slice(start, end + 1);
 }

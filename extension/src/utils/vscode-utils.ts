@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 // TODO implement this as vscode event
-export class liveTextEditorEventHandler {
+export class LiveTextEditorEventHandler {
     private readonly callback: (editor: vscode.TextEditor | undefined) => any;
     private readonly disposable: vscode.Disposable;
     private readonly disposeCallback: (editor: vscode.TextEditor | undefined) => any;

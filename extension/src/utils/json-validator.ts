@@ -1,4 +1,9 @@
-import { EditType, LineBreak } from "../utils/base-types";
+/**
+ * An experimental module for customizing JSON type validation
+ * for the RESTful API between frontend and backend of the tool itself.
+ */
+
+import { EditType, LineBreak } from "./base-types";
 import * as vscode from 'vscode';
 import * as t from 'io-ts';
 

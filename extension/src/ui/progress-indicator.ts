@@ -57,7 +57,7 @@ class ProgressDisplayStatusBarItem extends DisposableComponent {
         this.item.tooltip = "NavEdit is using language model to analyze 🔬";
     }
 
-    setStatustProblem(errorMessage: string) {
+    setStatusProblem(errorMessage: string) {
         this.busy = true;
         this.setItemText("close", "NavEdit");
         this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');

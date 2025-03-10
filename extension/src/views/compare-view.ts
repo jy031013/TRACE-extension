@@ -97,6 +97,7 @@ export async function createVirtualModifiedFileUri(originalUri: vscode.Uri, text
  * Use a series of suggested edits to generate a live editable diff view for the user to make the decision
  */
 class EditSelector {
+    /** Absolute path in the local file system */
     path: string;
     fromLine: number;
     toLine: number;
