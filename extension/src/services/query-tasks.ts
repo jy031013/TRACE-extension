@@ -66,12 +66,22 @@ async function predictLocationByNavEdit() {
 
         const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
 
+        const currentFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+
         // Split the file content into lines
         const files: [string, string[]][] = [];
-        for (const pathAndContent of fileContents) {
-            const content = pathAndContent[1];
+        for (const [filePath, content] of fileContents) {
             const lines = splitLines(content, false);
-            files.push([pathAndContent[0], lines]);
+
+            // limit lines except for current file
+            if (filePath !== currentFilePath) {
+                const maxLines = 500;
+                if (lines.length > maxLines) {
+                    lines.splice(maxLines);
+                }
+            }
+
+            files.push([filePath, lines]);
         }
 
         const filesAtPath: { [key: string]: string[] } = {};
