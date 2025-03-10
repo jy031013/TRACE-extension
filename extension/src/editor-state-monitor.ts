@@ -284,7 +284,13 @@ class EditWatcher implements vscode.Disposable {
 
     watch(uri: vscode.Uri) {
         this.languageSyntaxRecorder.watch(uri);
-        this.editReducer.addSnapshot(uri.toString(), vscode.window.activeTextEditor?.document.getText() ?? "");
+        getStagedFile(getOpenedFilePaths(), uri.fsPath)
+            .then((text) => {
+                this.editReducer.addSnapshot(uri.toString(), text);
+            })
+            .catch((err) => {
+                console.debug(`Cannot update snapshot on ${uri.fsPath}`);
+            });
     }
 
     unwatch(uri: vscode.Uri) {
@@ -574,6 +580,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         const uriString = uri.toString();
 
         const line = selection.start.line;
+        // FIXME Will some language use '-' in an identifier? By default this the word got here will be separated by '-'.
         const identifierRange = doc.getWordRangeAtPosition(selection.start) ?? new vscode.Range(selection.start, selection.end);
         const identifier = doc.getText(doc.getWordRangeAtPosition(selection.start));
 
@@ -612,7 +619,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
                 this.renameInfoMap.addRecord(uriString, line, header, entry);
             }
         } catch (err) {
-            console.warn('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
+            console.debug('Failed to find rename locations:', err instanceof Error ? err.message : String(err));
         }
     }
 
@@ -659,7 +666,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         try {
             return await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider', uri, position, 'placeholder');
         } catch (err) {
-            console.trace('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
+            // console.debug('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
             return undefined;
         } 
     }, 200);
