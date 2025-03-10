@@ -5,6 +5,7 @@ import torch
 from model_cache import load_model_with_cache
 from .utils import *
 from .logic_gate import logic_gate
+from .is_clone import find_clone_in_project
 from .invoker import load_model_invoker, ask_invoker
 from .locator import load_model_locator, predict_sliding_windows
 from .generator import load_model_generator, generate_edit
@@ -69,7 +70,15 @@ def invoker_interface(data):
         otherwise, send edit composition type to front end
     """
     # If frontend LSP detected clone or diagnose, and found locations, directly call locator
-    if data["lspServiceName"] in ["clone", "diagnose"] and data["lspFoundLocations"] is not []:
+    if data["lspServiceName"] in ["diagnose"] and data["lspFoundLocations"] is not []:
+        return locator_interface(data)
+    
+    # search for clone content
+    query = "".join(data["prevEdits"][-1]["rmText"])
+    clones = find_clone_in_project(data["files"], query, lsp_style=True)
+    if clones != []:
+        data["lspServiceName"] = "clone"
+        data["lspFoundLocations"] = clones
         return locator_interface(data)
     
     lang = data["language"]
