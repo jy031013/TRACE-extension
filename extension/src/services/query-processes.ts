@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
@@ -367,7 +367,7 @@ async function requestLocationByNavEdit(
     lspServiceName: PreJudgedLspType,
     lspFoundLocations: RequestLspFoundLocation[],
     cachedRenameOperation: CachedRenameOperation | undefined
-): Promise<['rename', Refactor] | ['location', LocatorLocation[]] | undefined> {
+): Promise<['rename', Refactor] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
 
     const invokerInput: RequestNavEditInvoker = {
         language: language,
@@ -407,42 +407,7 @@ async function requestLocationByNavEdit(
             console.trace('no cached rename operation found, nothing is done');
         }
     } else if ('files' in invokerOutput) {
-
-        const rawLocations = invokerOutput.files;
-        const convertedLocations: LocatorLocation[] = [];
-        for (const filePath in rawLocations) {
-            const editLocationsInFile = rawLocations[filePath];
-            for (const editLocation of editLocationsInFile) {
-                const labels: [string, number, number][] = [];
-                editLocation.inline_labels.forEach((label: string, index: number) => {
-                    if (label === '<keep>')
-                        return;
-                    if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
-                        labels.push([label, index, 0]);
-                    }
-                    const lastLabel = labels.at(-1);
-                    if (lastLabel) {
-                        lastLabel[2] += 1;
-                    }
-                });
-    
-                for (const [label, start, lines] of labels) {
-                    const _label = label.slice(1, -1);
-    
-                    convertedLocations.push({
-                        targetFilePath: filePath,
-                        // FIXME strip <delete> to delete should not use this way
-                        editType: _label === 'delete' ? 'remove' :
-                            _label === 'add' ? 'add' : 'replace',
-                        lineBreak: '\n',
-                        atLines: Array(lines).fill(0).map((_, i) => start + i),
-                        lineInfo: await getLineInfoInDocument(filePath, start)
-                    });
-                }
-            }
-        }
-        
-        return ['location', convertedLocations]; 
+        return ['location', invokerOutput.files]; 
     }
 }
 

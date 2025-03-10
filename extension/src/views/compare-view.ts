@@ -87,7 +87,7 @@ class CompareTempFileProvider extends BaseTempFileProvider {
 
 const compareTempFileSystemProvider = new CompareTempFileProvider();
 const tempWrite = compareTempFileSystemProvider.getAsyncWriter();
-const diffTabSelectors = new Map();
+const diffTabSelectors: Map<string, EditSelector> = new Map();
 
 export async function createVirtualModifiedFileUri(originalUri: vscode.Uri, text: string) {
    return await tempWrite(originalUri.fsPath, text);
@@ -112,6 +112,9 @@ class EditSelector {
     document?: vscode.TextDocument;
     id?: string;
     pathId?: string;
+
+    private _editCounterLensDisposable: vscode.Disposable | undefined;
+    private _compareViewOnCloseDisposable: vscode.Disposable | undefined;
 
     constructor(
         path: string,
@@ -144,6 +147,51 @@ class EditSelector {
             `/${this.id}`,
             this.originalContent
         );
+
+        // Register code lens to show which edit we're on
+        // this._editCounterLensDisposable = vscode.languages.registerCodeLensProvider(
+        //     [
+        //         {
+        //             scheme: this.tempUri?.scheme ?? 'temp',
+        //             pattern: this.tempUri?.path ?? ''
+        //         },
+        //         {
+        //             scheme: this.modifiedUri.scheme,
+        //             pattern: this.modifiedUri.path
+        //         }
+        //     ],
+        //     {
+        //         provideCodeLenses: (_) => {
+        //             return [
+        //                 new vscode.CodeLens(
+        //                     new vscode.Range(0, 0, 0, 0),
+        //                     {
+        //                         title: `Edit ${this.modAt + 1}/${this.edits.length}`,
+        //                         command: 'workbench.action.closeActiveEditor'
+        //                     }
+        //                 )
+        //             ];
+        //         }
+        //     }
+        // );
+
+        // Register a listener to reset the edit when the compare view is closed
+        this._compareViewOnCloseDisposable = vscode.window.tabGroups.onDidChangeTabs((e) => {
+            if (e.closed.some(tab => this.matchTab(tab))) {
+                this.clearEdit();
+                this.dispose();
+            }
+        });
+    }
+    
+    dispose() {
+        if (this._editCounterLensDisposable) {
+            this._editCounterLensDisposable.dispose();
+            this._editCounterLensDisposable = undefined;
+        }
+        
+        diffTabSelectors.delete(this.modifiedUri.toString());
+        // FIXME not cleaning tempWrite could lead to memory leak
     }
 
     /**
@@ -168,14 +216,32 @@ class EditSelector {
         this._replaceDocument(modifiedText);
     }
 
-    async _replaceDocument(fullText: string) {
+    async _replaceDocument(fullText: string, useOpenedDocument: boolean = false) {
         if (!this.document) {
             return;
         }
 
-        const editor = vscode.window.visibleTextEditors.find(
-            (editor) => editor.document === this.document
-        );
+        // NOTE When there are multiple editors pointing to this document
+        // and the one of them selected here is closing, the replacement could possibly be invalidated
+        // and other editors could remain unchanged!
+
+        // And tested, the visibleTextEditors could be the editor closing
+        // While only after calling openTextDocument manually could the activeTextEditor be correctly redirected to the original code file
+
+        let editor: vscode.TextEditor | undefined;
+
+        if (useOpenedDocument) {
+            // if (vscode.window.activeTextEditor?.document.uri.toString() === vscode.Uri.file(this.path).toString()) {
+            const openedDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(this.path));
+            if (vscode.window.activeTextEditor?.document === openedDocument) {
+                editor = vscode.window.activeTextEditor;
+            }
+        } else {
+            editor = vscode.window.visibleTextEditors.find(
+                (editor) => editor.document === this.document
+            );
+        }
+
         if (!editor) {
             return;
         }
@@ -185,7 +251,6 @@ class EditSelector {
             this.document.positionAt(this.document.getText().length)
         );
         
-        // TODO can we use this callback function to implement MOL "undo-rename-do" work?
         await editor.edit(editBuilder => {
             editBuilder.replace(fullRange, fullText);
         }, { undoStopBefore: false, undoStopAfter: false });
@@ -197,7 +262,7 @@ class EditSelector {
         await vscode.commands.executeCommand('vscode.diff',
             this.tempUri,
             this.modifiedUri,
-            `EDIT ${this.modAt+1}/${this.edits.length}: ${path.basename(this.path)}`
+            `EDIT: ${path.basename(this.path)}`
         );
 
         // const tabGroups = vscode.window.tabGroups;
@@ -222,9 +287,9 @@ class EditSelector {
 
     async editDocumentAndShowDiff() {
         await this._performMod(this.edits[this.modAt]);
-        if (globalEditorState.inDiffEditor) {     // refresh existed diff editor
-            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-        }
+        // if (globalEditorState.inDiffEditor) {     // refresh existed diff editor
+        //     await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        // }
         await this._showDiffView();
     }
 
@@ -235,8 +300,11 @@ class EditSelector {
 
     async clearEdit() {
         // await vscode.commands.executeCommand('undo');
-        await this._replaceDocument(this.originalContent);
-        await this.clearRelatedLocation();
+        if (this.matchActiveEditor()) {
+            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        }
+        await this._replaceDocument(this.originalContent, true);
+        // await this.clearRelatedLocation();
     }
 
     async clearRelatedLocation() {
@@ -258,11 +326,27 @@ class EditSelector {
 
     async acceptEdit() {
         await this.clearRelatedLocation();
+        if (this.matchActiveEditor()) {
+            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        }
     }
 
     _getPathId() {
         this.pathId = crypto.createHash('sha256').update(this.path).digest('hex') + path.extname(this.path);
         return this.pathId;
+    }
+
+    matchActiveEditor() {
+        const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+
+        return this.matchTab(activeTab);
+    }
+
+    matchTab(tab: vscode.Tab | undefined) {
+        return tab
+            && tab.input instanceof vscode.TabInputTextDiff
+            && tab.input.original.toString() === this.tempUri?.toString()
+            && tab.input.modified.toString() === this.modifiedUri.toString();
     }
 }
 

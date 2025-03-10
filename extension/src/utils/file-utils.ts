@@ -146,8 +146,8 @@ function getRootPath() {
     return toPosixPath(workspacePath);
 }
 
-async function readFilesDefaultCollected(useSnapshot = true) {
-    const rootPath = getRootPath();
+async function readFilesDefaultCollected(basePath: string | undefined = undefined, useSnapshot = true) {
+    const rootPath = basePath ?? getRootPath();
 
     // Use glob to exclude certain files and return a list of all valid files
     
@@ -314,6 +314,12 @@ function replaceCurrentSnapshot(fileList: [string, string | undefined][]) {
     if (currentFile) {
         currentFile[1] = globalEditorState.currSnapshot; // Use the unsaved content as the actual file content
     }
+}
+
+// https://stackoverflow.com/questions/37521893/determine-if-a-path-is-subdirectory-of-another-in-node-js
+export function isDescendant(parent_path: string, child_path: string) {
+    const relative = path.relative(parent_path, child_path);
+    return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 export {

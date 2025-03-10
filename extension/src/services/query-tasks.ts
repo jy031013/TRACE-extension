@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath } from '../utils/file-utils';
+import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
 import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestLocationByNavEdit } from './query-processes';
@@ -10,6 +10,7 @@ import { EditType, EditWithTimestamp, FileAsHunks, RequestEdit, SimpleEdit } fro
 import { splitLines } from '../utils/utils';
 import { globalEditInfoCollector } from '../editor-state-monitor';
 import { PreJudgedLspType, RequestLspFoundLocation } from './backend-requests';
+import path from 'path';
 
 /**
  * @deprecated This function is obsolete. Fetching previous edits in the new way is not implemented yet;
@@ -52,8 +53,18 @@ async function predictLocationByNavEdit() {
         if (commitMessage === undefined) return;
 
         statusBarItem.setStatusLoadingFiles();
-        const rootPath = getRootPath();
-        const fileContents = await readFilesDefaultCollected() as [string, string][];
+        
+        // Glob starting from 2-level parent directory, but not higher that the workspace directory
+        const workspaceRoot = getRootPath();
+        let globFromPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+        if (globFromPath !== undefined) {
+            globFromPath = path.dirname(path.dirname(globFromPath));
+        }
+        if (globFromPath === undefined || !isDescendant(workspaceRoot, globFromPath)) {
+            globFromPath = workspaceRoot;
+        }
+
+        const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
 
         // Split the file content into lines
         const files: [string, string[]][] = [];
@@ -92,13 +103,13 @@ async function predictLocationByNavEdit() {
                 if (invokerResult[0] === 'rename') {
                     globalQueryContext.updateRefactor(invokerResult[1]);
                 } else if (invokerResult[0] === 'location') {
-                    globalQueryContext.updateLocations(invokerResult[1]);
+                    globalQueryContext.updateNavEditLocations(invokerResult[1]);
                 }
             }
             
             statusBarItem.setStatusDefault();
         } catch (err) {
-            vscode.window.showErrorMessage("Oops! Something went wrong with the query request...", err instanceof Error ? err.message : "Unknown error");
+            vscode.window.showErrorMessage(`Oops! Something went wrong with the query request...: ${err instanceof Error ? err.message : 'Unknown error'}`);
             statusBarItem.setStatusProblem("Some error occurred when predicting locations");
             throw err;
         }
@@ -212,8 +223,11 @@ async function predictEdit() {
             }
         }
 
-        const codeWindowContextBefore = fileLines.slice(Math.max(startLine, 0), startLine);
-        const codeWindowContextAfter = fileLines.slice(endLine, Math.min(endLine + 1, fileLines.length));
+        const contextStartLine = Math.max(startLine, 0);
+        const contextEndLine = Math.min(endLine + 1, fileLines.length);
+
+        const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
+        const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
         codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
 
         const {
@@ -223,10 +237,10 @@ async function predictEdit() {
             cachedRenameOperation
         } = await globalEditInfoCollector.exportAnalyzedEdits();
 
-        let replacementStrings = await requestEdit(
+        let replacementStringsOfEntireBlock = await requestEdit(
             globalEditorState.language,
             activeDocument.uri.fsPath,
-            atLines[0] ?? 0,
+            contextStartLine,
             codeWindow,
             interLabels,
             inlineLabels,
@@ -236,17 +250,35 @@ async function predictEdit() {
             lspType
         );
 
-        if (!replacementStrings) { return; }
+        if (!replacementStringsOfEntireBlock) { return; }
         
         // Remove syntax-level unchanged replacements
         // TODO specify this step to a function
-        replacementStrings = replacementStrings.filter((snippet: string) => snippet.trim() !== selectedContent.trim());
+        replacementStringsOfEntireBlock = replacementStringsOfEntireBlock.filter((snippet: string) => snippet.trim() !== codeWindow.join('').trim());
+
+        // deduplication
+        const uniqueReplacementStrings = new Set<string>();
+        const filteredReplacementStrings = replacementStringsOfEntireBlock.filter((snippet: string) => {
+            if (uniqueReplacementStrings.has(snippet)) {
+                return false;
+            } else {
+                uniqueReplacementStrings.add(snippet);
+                return true;
+            }
+        });
+        replacementStringsOfEntireBlock = filteredReplacementStrings;
+
+        // limit number
+        const maxEdits = 3;
+        if (replacementStringsOfEntireBlock.length > maxEdits) {
+            replacementStringsOfEntireBlock = replacementStringsOfEntireBlock.slice(0, maxEdits);
+        }
 
         const selector = new EditSelector(
             toPosixPath(uri.fsPath),
-            fromLine,
-            toLine+1,
-            replacementStrings,
+            contextStartLine,
+            contextEndLine,
+            replacementStringsOfEntireBlock,
             tempWrite,
             false
         );
@@ -287,9 +319,9 @@ class GenerateEditCommand extends DisposableComponent {
             const currTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
             if (currTab && currTab.input instanceof vscode.TabInputTextDiff) {
                 const selector = diffTabSelectors.get(currTab.input.modified.toString());
-                if (selector) {
-                    selector.manuallyEdited = false;
-                }
+                // if (selector) {
+                //     selector.manuallyEdited = false;
+                // }
                 return selector;
             }
             return undefined;
@@ -327,11 +359,11 @@ class GenerateEditCommand extends DisposableComponent {
             vscode.commands.registerCommand("navEdit.acceptEdit", async () => {
                 globalEditorState.toPredictLocation = true;
                 await acceptEdit();
-                await closeTab();
+                // await closeTab();
             }),
             vscode.commands.registerCommand("navEdit.dismissEdit", async () => {
                 await clearEdit();
-                await closeTab();
+                // await closeTab();
             })
         );
     }

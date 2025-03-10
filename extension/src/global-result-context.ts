@@ -375,12 +375,79 @@ class QueryContext extends DisposableComponent {
         this.activeLocationResult = new LocationResult(locations);
     }
 
-    updateNavEditLocations(response: ResponseNavEditLocator) {
+    updateNavEditLocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
+        // filter out non-keep inline label confidence < 90%, THIS IS IN-PLACE!
+        for (const filePath in locationsByFile) {
+            const fileLocations = locationsByFile[filePath];
+            locationsByFile[filePath] = fileLocations.filter((loc) => {
+                const inlineLabels = loc.inline_labels;
+                const confidence = loc.inline_confidences;
+                return inlineLabels.every((label, index) => {
+                    if (label !== '<keep>' && confidence[index] < 0.9) {
+                        return false;
+                    }
+                    return true;
+                });
+            });
+        }
+
+
+        // FIXME this is a temporary solution, reusing the old locations for conversion to old decoration
+        (async () => {
+            const convertedLocations: LocatorLocation[] = [];
+            for (const filePath in locationsByFile) {
+                const editLocationsInFile = locationsByFile[filePath];
+                for (const editLocation of editLocationsInFile) {
+                    const startLine = editLocation.code_window_start_line;
+                    const labels: [string, number, number][] = [];
+
+                    editLocation.inline_labels.forEach((label: string, index: number) => {
+                        if (label === '<keep>')
+                            return;
+                        if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
+                            labels.push([label, startLine + index, 0]);
+                        }
+                        const lastLabel = labels.at(-1);
+                        if (lastLabel) {
+                            lastLabel[2] += 1;
+                        }
+                    });
+        
+                    for (const [label, start, lines] of labels) {
+                        const _label = label.slice(1, -1);
+        
+                        convertedLocations.push({
+                            targetFilePath: filePath,
+                            // FIXME strip <delete> to delete should not use this way
+                            editType: _label === 'delete' ? 'remove' :
+                                _label === 'add' ? 'add' : 'replace',
+                            lineBreak: '\n',
+                            atLines: Array(lines).fill(0).map((_, i) => start + i),
+                            lineInfo: await getLineInfoInDocument(filePath, start)
+                        });
+                    }
+                }
+            }
+
+            // deduplication
+            const uniqueLocations: LocatorLocation[] = [];
+            for (const loc of convertedLocations) {
+                if (!uniqueLocations.some(
+                    (l) => l.targetFilePath === loc.targetFilePath
+                        && l.atLines[0] === loc.atLines[0]
+                )) {
+                    uniqueLocations.push(loc);
+                }
+            }
+
+            this.updateLocations(uniqueLocations);
+        })();
+        
         this.clearResults();
         const locations: [vscode.Uri, ResponseEditLocationWithLabels[]][] = [];
-        for (const filePath in response.files) {
+        for (const filePath in locationsByFile) {
             const uri = vscode.Uri.file(filePath);
-            const fileLocations = response.files[filePath];
+            const fileLocations = locationsByFile[filePath];
 
             locations.push([uri, fileLocations]);
         }
