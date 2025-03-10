@@ -87,19 +87,35 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
         source_ids = batch[0]
         source_mask = source_ids.ne(generator_tokenizer.pad_token_id)
         with torch.no_grad():
-            preds = generator.generate(source_ids,
+            outputs = generator.generate(source_ids,
                                     attention_mask=source_mask,
                                     use_cache=True,
                                     num_beams=10,
                                     max_length=512,
-                                    num_return_sequences=10)
+                                    num_return_sequences=10,
+                                    return_dict_in_generate=True,
+                                    output_scores=True
+                                )
+            sequence_scores = generator.compute_transition_scores(
+                outputs.sequences,  # 生成的 token 序列
+                outputs.scores,  # 生成过程中每个 step 的 logits
+                normalize_logits=True  # 归一化概率
+            )
+            final_scores = [seq_score.mean().item() for seq_score in sequence_scores]
+            preds = outputs.sequences
             preds = preds.reshape(source_ids.size(0), 10, -1)
             preds = preds.cpu().numpy()
-            for idx in range(preds.shape[0]):
-                replacements = []
-                for candidate in preds[idx]:
-                    replacements.append(generator_tokenizer.decode(candidate, skip_special_tokens=True,clean_up_tokenization_spaces=False))
+            replacements=[]
+            for pred, score in zip(preds[0], final_scores): # batch_size=1
+                pred_seq = generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False)
+                replacements.append((pred_seq, score))
 
+    # Rank by score in decending order
+    replacements.sort(key=lambda x: x[1], reverse=True)
+    
+    # discard score
+    replacements = [r[0] for r in replacements]
+    
     if "<replace>" not in inline_labels and "<delete>" not in inline_labels and "<insert>" in inter_labels:
         assert inter_labels.count("<insert>") == 1
         prefix = "".join(code_window[:inter_labels.index("<insert>")])
