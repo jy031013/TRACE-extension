@@ -156,7 +156,10 @@ def locator_interface(data):
     all_files_sliding_windows = get_sliding_window_for_files(data["files"])
     
     # Predict on each sliding window
-    return predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows)
+    predictionResult = predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, data["commitMsg"], device, all_files_sliding_windows)
+    return {
+        "files": predictionResult
+    }
 
 def generator_interface(data):
     """
