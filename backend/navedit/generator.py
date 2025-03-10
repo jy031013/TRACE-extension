@@ -1,5 +1,7 @@
 import torch
 import time
+import torch.nn as nn
+
 from rank_bm25 import BM25Okapi
 from transformers import (RobertaTokenizer, T5Config, T5ForConditionalGeneration)
 from transformers import RobertaTokenizer
@@ -31,10 +33,14 @@ def load_model_generator(model_path: str, device: torch.device):
                           "<replace-by>", "</replace-by>",
                           "<feedback>", "</feedback>"]
     tokenizer.add_tokens(new_special_tokens, special_tokens=True)
-    model.encoder.resize_token_embeddings(len(tokenizer))
+    
     config.vocab_size = len(tokenizer)
+    new_encoder_embedding = nn.Embedding(config.vocab_size, config.d_model)
+    model.encoder.embed_tokens = new_encoder_embedding
+
     model.load_state_dict(torch.load(model_path))
-    model.to(device)
+    # below type cannot be correctly parsed by pyright
+    model.to(device)     # type: ignore
     return model, tokenizer
 
 def generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, prev_edit_type):
@@ -44,9 +50,9 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
 
     # Check some assertions
     to_edit_lines = []
-    for label in inline_labels:
+    for i, label in enumerate(inline_labels):
         if label != "<keep>":
-            to_edit_lines.append(label)
+            to_edit_lines.append(i)
     
     assert to_edit_lines == list(range(min(to_edit_lines), max(to_edit_lines)+1))
 
@@ -124,6 +130,9 @@ def select_hunk(code_window: list[str], inline_labels: list[str], inter_labels: 
     non_overlap_hunks = [CodeWindow(edit, "hunk") for edit in prev_eidt_hunks]
     choosen_hunk_ids = [hunk.id for hunk in non_overlap_hunks] # index to hunk id
     tokenized_corpus = [tokenizer.tokenize("".join(hunk.before_edit_region()+hunk.after_edit_region())) for hunk in non_overlap_hunks]
+
+    if len(tokenized_corpus) == 0:
+        return []
     bm25 = BM25Okapi(tokenized_corpus)
 
     # Extract the `to edit part` from the code window
