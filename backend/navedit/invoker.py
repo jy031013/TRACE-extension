@@ -124,15 +124,11 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         print(f"+++ Probability from Invoker: {probability}")
         binary_predictions = (probability >= threshold).astype(int)
 
-    # decode and log the whole sequence
-    input_logit_sequence = source_ids
-    input_string = invoker_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
-
     torch.sigmoid(logits).detach().cpu().numpy()
 
     df = pd.DataFrame(probability, columns=['rename0', 'rename1', 'def&ref', 'clone'])
 
-    logger.debug(f'>>> [Invoker] has predicted confidences of edit types:\nInput:\n{input_string}\nConfidence:\n{df.to_string()}')
+    logger.debug(f'>>> [Invoker] has predicted confidences of edit types:\nInput:\n{input_seqs}\nConfidence:\n{df.to_string()}')
 
     results = []
     for prediction in binary_predictions:
