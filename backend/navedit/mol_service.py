@@ -73,15 +73,6 @@ def invoker_interface(data):
     if data["lspServiceName"] in ["diagnose"] and data["lspFoundLocations"] is not []:
         return locator_interface(data)
     
-    # search for clone content
-    if (len(data["prevEdits"]) > 0):
-        query = "".join(data["prevEdits"][-1]["rmText"])
-        clones = find_clone_in_project(data["files"], query, lsp_style=True)
-        if clones != []:
-            data["lspServiceName"] = "clone"
-            data["lspFoundLocations"] = clones
-            return locator_interface(data)
-    
     lang = data["language"]
     # Transform the 3 label representation to 6 label representation
     prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
@@ -111,6 +102,15 @@ def invoker_interface(data):
                 "type": service,
                 "info": gate_info
             }
+    elif (len(data["prevEdits"]) > 0):
+        # find clones on backend
+        # this could probably find some clones
+        query = "".join(data["prevEdits"][-1]["rmText"])
+        clones = find_clone_in_project(data["files"], query, lsp_style=True)
+        if clones != []:
+            data["lspServiceName"] = "clone"
+            data["lspFoundLocations"] = clones
+            return locator_interface(data)
     
     print(f"+++ Invoker prediction: normal, directly activating locator from backend")
     data["lspServiceName"] = "normal"
