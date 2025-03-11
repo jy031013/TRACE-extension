@@ -122,7 +122,7 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                 const info = syntaxInfo[infoType];
                 if (!info) continue;
                 for (const [header, record] of info) {
-                    let locations: CodeRangeInFile[] = [];
+                    let locations: CodeLocationInFile[] = [];
                     if ('allDefs' in record) {
                         locations = record.allDefs;
                     } else if ('allRefs' in record) {
@@ -493,7 +493,7 @@ interface SyntaxInfoEntryHeader {
     timestamp: number;
 }
 
-export interface CodeRangeInFile {
+export interface CodeLocationInFile {
     uri: vscode.Uri;
     range: vscode.Range;
 }
@@ -504,11 +504,11 @@ export interface CodeRangesInFile {
 }
 
 interface DefInfo {
-    allDefs: CodeRangeInFile[]
+    allDefs: CodeLocationInFile[]
 }
 
 interface RefInfo {
-    allRefs: CodeRangeInFile[]
+    allRefs: CodeLocationInFile[]
 }
 
 interface RenameInfo {
@@ -696,7 +696,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         // do each type of collection in parallel
 
         (async () => {
-            const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+            const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeLocationInFile[];
             if (def.length > 0) {
                 const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
 
@@ -709,7 +709,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         
         
         (async () => {
-            const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeRangeInFile[];
+            const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeLocationInFile[];
             if (ref.length > 0) {
                 const entry = {
                     allRefs: ref
@@ -744,27 +744,35 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
         })();
     }
 
-    private async expandToFullDefinitionRanges(identifier: string, ranges: CodeRangeInFile[]): Promise<CodeRangeInFile[]> {
-        const matchedRanges: CodeRangeInFile[] = [];
-        for (const range of ranges) {
-            const rootInfoArray = await this.fetchDocumentSymbolInfo(range.uri);
-            const matchedInfo = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfoArray, identifier, range.range);
+    private async expandToFullDefinitionRanges(identifier: string, locations: CodeLocationInFile[]): Promise<CodeLocationInFile[]> {
+        const matchedLocations: CodeLocationInFile[] = [];
+        for (const location of locations) {
+            const rootInfoArray = await this.fetchDocumentSymbolInfo(location.uri);
+            const matchedInfo = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfoArray, identifier, location.range);
             if (matchedInfo) {
-                matchedRanges.push(range);
+                const firstLineRangeInfo = new vscode.Range(
+                    new vscode.Position(matchedInfo.range.start.line, 0),
+                    new vscode.Position(matchedInfo.range.start.line, Number.MAX_SAFE_INTEGER)
+                );
+
+                matchedLocations.push({
+                    uri: location.uri,
+                    range: firstLineRangeInfo
+                });
             }
         }
         
-        return matchedRanges;
+        return matchedLocations;
     }
 
     private findRecursivelyMatchedDocumentSymbolInfo(infoArray: DocumentSymbolInfo[], identifier: string, range: vscode.Range): DocumentSymbolInfo | undefined {
         for (const rootInfo of infoArray) {
-            if (rootInfo.name === identifier && rootInfo.range.isEqual(range)) {
+            if (rootInfo.name === identifier && rootInfo.selectionRange.isEqual(range)) {
                 return rootInfo;
             }
             const matchedChild = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfo.children, identifier, range);
             if (matchedChild) {
-                return matchedChild; 
+                return matchedChild;
             }
         }
         return undefined;
