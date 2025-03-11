@@ -15,7 +15,7 @@ def find_line_numbers(start_char_pos, end_char_pos, document_in_lines):
 
             # 计算交集的大小
             intersection_length = max(0, end - start + 1)
-            if intersection_length / len(line) > 0.75:
+            if intersection_length / len(line.strip()) > 0.75:
                 line_idx.append(index)
         
         current_char_count = next_char_count  # 更新当前的字符总数
@@ -33,8 +33,14 @@ def partial_scs(query, document, threshold, left, right):
         'start_char': start_char,
         'end_char': end_char
     }]
-    left_segments = partial_scs(query, document[left : start_char], threshold, left=left, right=start_char)
-    right_segments = partial_scs(query, document[end_char : right], threshold, left=end_char, right=right)
+    if document[left : start_char].strip() != "":
+        left_segments = partial_scs(query, document[left : start_char], threshold, left=left, right=start_char)
+    else:
+        left_segments = []
+    if document[end_char : right].strip() != "":
+        right_segments = partial_scs(query, document[end_char : right], threshold, left=end_char, right=right)
+    else:
+        right_segments = []
     return left_segments + segments + right_segments
   
 def find_similar_code_segment(query, original_document_lines, threshold=80):
@@ -82,67 +88,41 @@ def find_clone_in_project(files, query: str, threshold=80, lsp_style=False):
         found_clones: list, a list of found segments
     """
     found_clones = []
-
-    for file_path, document_lines in files.items():
-        found_segments = find_similar_code_segment(query, document_lines, threshold)
-        if found_segments != []:
-            for segment in found_segments:
-                assert segment["matched_lines"] != []
-                
-                if segment["score"] < threshold:
-                    continue
-                if not lsp_style:
-                    found_clones.append({
-                        "file_path": file_path,
-                        "score": segment["score"],
-                        "matched_lines": segment["matched_lines"]
-                    })
-                else:
-                    found_clones.append({
-                        "file_path": file_path,
-                        "score": segment["score"],
-                        "start": {
-                            "line": segment["matched_lines"][0],
-                            "col": 0
-                        },
-                        "end": {
-                            "line": segment["matched_lines"][-1],
-                            "col": 0
-                        }
-                    })
+    queries = [
+        'if "http" in file:',
+        'if "http" in path:',
+        'if "http" in model:',
+        'if len(models) == 1 and "http" in models[0]:',
+        'if "http" in file:'
+    ]
+    
+    for query in queries:
+        for file_path, document_lines in files.items():
+            found_segments = find_similar_code_segment(query, document_lines, threshold)
+            if found_segments != []:
+                for segment in found_segments:
+                    assert segment["matched_lines"] != []
+                    
+                    if segment["score"] < threshold:
+                        continue
+                    if not lsp_style:
+                        found_clones.append({
+                            "file_path": file_path,
+                            "score": segment["score"],
+                            "matched_lines": segment["matched_lines"]
+                        })
+                    else:
+                        found_clones.append({
+                            "file_path": file_path,
+                            "score": segment["score"],
+                            "start": {
+                                "line": segment["matched_lines"][0],
+                                "col": 0
+                            },
+                            "end": {
+                                "line": segment["matched_lines"][-1],
+                                "col": 0
+                            }
+                        })
 
     return found_clones
-
-# def is_clone_edit(commit: Commit, prior_edits: list):
-#     """
-#     Func: 
-#         Check if the current edit is a clone edit
-#     Args:
-#         prior_edits: list, a list of prior edits
-#     Returns:
-#         bool | str: False if not a clone edit, otherwise the code before the current edit
-#     """
-#     if len(prior_edits) < 2:
-#         return False
-    
-#     tgt_edit_code_before = "".join(prior_edits[-1]["before"])
-#     if tgt_edit_code_before.strip() == "":
-#         return False
-    
-#     other_edit_code_before = "".join(prior_edits[-2]["before"])
-#     if other_edit_code_before.strip() == "":
-#         return False
-    
-#     if fuzz.ratio(tgt_edit_code_before, other_edit_code_before) > 90:
-#         return tgt_edit_code_before
-
-#     return False
-#     # commit.get_current_version(save=True)
-#     # query = "".join(prior_edits[-1]["before"])
-#     # if query.strip() == "":
-#     #     return False
-#     # clone_locations = find_clone_in_project(commit, query, lsp_style=True)
-#     # if clone_locations == []:
-#     #     return False
-#     # else:
-#     #     return query

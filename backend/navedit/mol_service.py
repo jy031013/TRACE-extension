@@ -71,6 +71,7 @@ def invoker_interface(data):
     """
     # If frontend LSP detected clone or diagnose, and found locations, directly call locator
     if data["lspServiceName"] in ["diagnose"] and data["lspFoundLocations"] is not []:
+        print("+++ prevEdit has caused diagnoses, skip invoker, directly sending diagnose location to Locator.")
         return locator_interface(data)
     
     lang = data["language"]
@@ -86,9 +87,8 @@ def invoker_interface(data):
     # (gate_info contains refactor information like rename) 
     # Due to code logic, clone, diagnose can be not predicted by invoker
     if len(prev_edit_hunks) == 0:
-        return {
-            "type": "normal"
-        }
+        print("+++ No prevEdits, skip invoker, Locator scanning all files.")
+        return locator_interface(data)
 
     prior_edit_type, gate_info = logic_gate(prev_edit_hunks, lang)
     
@@ -96,12 +96,13 @@ def invoker_interface(data):
         ### SECOND PHASE: discriminate the type of on-going edits
         service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang)
         if service == prior_edit_type:
-            print(f"+++ Invoker prediction: {service}")
+            print(f"+++ Invoker prediction: {service}, sending LSP request information backto frontend LSP.")
             assert service in ["rename", "def&ref"]
             return {
                 "type": service,
                 "info": gate_info
             }
+            
     elif (len(data["prevEdits"]) > 0):
         # find clones on backend
         # this could probably find some clones
@@ -110,9 +111,10 @@ def invoker_interface(data):
         if clones != []:
             data["lspServiceName"] = "clone"
             data["lspFoundLocations"] = clones
+            print(f"+++ Invoker prediction: normal, but code clone detector found some location, sending to Locator")
             return locator_interface(data)
     
-    print(f"+++ Invoker prediction: normal, directly activating locator from backend")
+    print(f"+++ Invoker prediction: normal, Locator scanning all files.")
     data["lspServiceName"] = "normal"
     return locator_interface(data)
 

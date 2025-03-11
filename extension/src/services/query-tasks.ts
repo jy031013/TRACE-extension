@@ -2,7 +2,7 @@ import vscode from 'vscode';
 import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant, readMostRelatedFiles } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
-import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestLocationByNavEdit } from './query-processes';
+import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByNavEdit, requestNavEditLocator } from './query-processes';
 import { DisposableComponent } from '../utils/base-component';
 import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view';
 import { statusBarItem } from '../ui/progress-indicator';
@@ -89,7 +89,7 @@ async function predictLocationByNavEdit() {
             statusBarItem.setStatusQuerying("locator");
             // TODO depart this step, because it is not parallel to other steps
             
-            const invokerResult = await requestLocationByNavEdit(
+            const invokerResult = await requestInvokerAndLocationByNavEdit(
                 filesAtPath,
                 requestEdits,
                 commitMessage,
@@ -99,10 +99,26 @@ async function predictLocationByNavEdit() {
                 cachedRenameOperation
             );
             if (invokerResult) {
-                if (invokerResult[0] === 'rename') {
-                    globalQueryContext.updateRefactor(invokerResult[1]);
-                } else if (invokerResult[0] === 'location') {
-                    globalQueryContext.updateNavEditLocations(invokerResult[1]);
+                if (invokerResult instanceof Array) {
+                    if (invokerResult[0] === 'rename') {
+                        globalQueryContext.updateRefactor(invokerResult[1]);
+                    } else if (invokerResult[0] === 'location') {
+                        globalQueryContext.updateNavEditLocations(invokerResult[1]);
+                    }
+                } else {
+                    const locatorResult = await requestNavEditLocator(
+                        filesAtPath,
+                        requestEdits,
+                        commitMessage,
+                        globalEditorState.language,
+                        lspType,
+                        fullLspFoundLocations,
+                        cachedRenameOperation
+                    );
+
+                    if (locatorResult) {
+                        globalQueryContext.updateNavEditLocations(locatorResult.files);
+                    }
                 }
             }
             
@@ -286,12 +302,12 @@ async function predictEdit() {
         replacementStringsOfEntireBlock = filteredReplacementStrings;
 
         // rank by length, note that the sorting is stable
-        replacementStringsOfEntireBlock.sort((a: string, b: string) => {
-            const aLength = a.length;
-            const bLength = b.length;
-            if (aLength === bLength) return 0;
-            return aLength < bLength ? -1 : 1;
-        });
+        // replacementStringsOfEntireBlock.sort((a: string, b: string) => {
+        //     const aLength = a.length;
+        //     const bLength = b.length;
+        //     if (aLength === bLength) return 0;
+        //     return aLength < bLength ? -1 : 1;
+        // });
 
         // limit number
         const maxEdits = 3;
