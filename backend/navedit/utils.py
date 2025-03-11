@@ -34,6 +34,9 @@ def get_sliding_window_for_lsp_locations(files: dict, lsp_locations: list[dict])
     sliding_windows = []
     for location in lsp_locations:
         file_path = location["file_path"]
+        if file_path not in files:
+            continue
+
         start_line_idx = location["start"]["line"]
         end_line_idx = location["end"]["line"]
         location_range = end_line_idx - start_line_idx + 1
