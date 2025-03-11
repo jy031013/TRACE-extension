@@ -47,13 +47,15 @@
         "title": "Last Suggestion",
         "category": "NavEdit",
         "command": "navEdit.lastSuggestion",
-        "icon": "$(arrow-left)"
+        "icon": "$(arrow-left)",
+        "enablement": "navEdit:hasPreviousSuggestion"
       },
       {
         "title": "Next Suggestion",
         "category": "NavEdit",
         "command": "navEdit.nextSuggestion",
-        "icon": "$(arrow-right)"
+        "icon": "$(arrow-right)",
+        "enablement": "navEdit:hasNextSuggestion"
       },
       {
         "title": "Accept",

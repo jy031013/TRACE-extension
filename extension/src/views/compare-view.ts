@@ -132,8 +132,10 @@ class EditSelector {
         this.isAdd = isAdd;
 
         this.originalContent = "";
-        this.modAt = 0;
         this.modifiedUri = vscode.Uri.file(this.path);
+
+        this.modAt = 0;
+        this.setSelectedModification(0);
     }
 
     async init() {
@@ -297,7 +299,8 @@ class EditSelector {
     }
 
     async switchEdit(offset = 1) {
-        this.modAt = (this.modAt + offset + this.edits.length) % this.edits.length;
+        const modAt = (this.modAt + offset + this.edits.length) % this.edits.length;
+        this.setSelectedModification(modAt);
         await this.editDocumentAndShowDiff();
     }
 
@@ -353,6 +356,15 @@ class EditSelector {
         if (this.matchActiveEditor()) {
             await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
         }
+    }
+
+    private setSelectedModification(i: number) {
+        this.modAt = i;
+
+        const hasPrevious = i > 0;
+        const hasNext = i < this.edits.length - 1;
+        vscode.commands.executeCommand('setContext', 'navEdit:hasPreviousSuggestion', hasPrevious);
+        vscode.commands.executeCommand('setContext', 'navEdit:hasNextSuggestion', hasNext);
     }
 }
 
