@@ -67,6 +67,9 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
                     assert inter_labels[idx] != "<null>" or inter_labels[idx-1] != "<null>"
                 else:
                     assert inter_labels[idx] != "<null>"
+    else:
+        assert "<insert>" in inter_labels
+        assert ["<keep>"] == list(set(inline_labels))
     # Done checking assertions
 
     # if is a delete code window, just delete without generator
