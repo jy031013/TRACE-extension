@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseNavEditLocator, ResponseNavEditInvoker } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
@@ -359,7 +359,7 @@ export interface CachedRenameOperation {
  * @param language The language identifier based on VS Code of the current file.
  * @returns An array, containing suggested locations with their extra info.
  */
-async function requestLocationByNavEdit(
+async function requestInvokerAndLocationByNavEdit(
     files: { [key: string]: string[] },
     prevEdits: RequestEdit[],
     commitMessage: string, 
@@ -367,7 +367,7 @@ async function requestLocationByNavEdit(
     lspServiceName: PreJudgedLspType,
     lspFoundLocations: RequestLspFoundLocation[],
     cachedRenameOperation: CachedRenameOperation | undefined
-): Promise<['rename', Refactor] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
+): Promise<ResponseNavEditInvoker | ['rename', Refactor] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
 
     const invokerInput: RequestNavEditInvoker = {
         language: language,
@@ -408,7 +408,36 @@ async function requestLocationByNavEdit(
         }
     } else if ('files' in invokerOutput) {
         return ['location', invokerOutput.files]; 
+    } else {
+        return invokerOutput;
     }
+}
+
+export async function requestNavEditLocator(
+    files: { [key: string]: string[] },
+    prevEdits: RequestEdit[],
+    commitMessage: string,
+    language: string,
+    lspServiceName: PreJudgedLspType,
+    lspFoundLocations: RequestLspFoundLocation[],
+    cachedRenameOperation: CachedRenameOperation | undefined
+): Promise<ResponseNavEditLocator | undefined> {
+
+    const locatorInput: RequestNavEditInvoker = {
+        language: language,
+        commitMsg: commitMessage,
+        prevEdits: prevEdits,
+        files: files,
+        lspServiceName: lspServiceName,
+        lspFoundLocations: lspFoundLocations
+    };
+    statusBarItem.setStatusQuerying("locator");
+
+    const locatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
+        return await postRequestToNavEditLocator(locatorInput);
+    });
+
+    return locatorOutput;
 }
 
 async function requestEdit(
@@ -447,5 +476,5 @@ async function requestEdit(
 export {
     requestAndUpdateLocation,
     requestEdit,
-    requestLocationByNavEdit
+    requestInvokerAndLocationByNavEdit
 };
