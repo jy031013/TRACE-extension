@@ -82,7 +82,9 @@ try {
 // BASIC FUNCTIONS
 
 export function toDriveLetterLowerCasePath(filePath: string) {
-    return fs.realpathSync.native(filePath);
+    return osType === 'Windows_NT' ?
+        filePath.replace(/^[A-Z]:/, (match) => match.toLowerCase())
+        : filePath;
 }
 
 // Convert any-style path to POSIX-style path
