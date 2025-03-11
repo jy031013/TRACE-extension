@@ -146,12 +146,12 @@ function getRootPath() {
     return toPosixPath(workspacePath);
 }
 
-async function readFilesDefaultCollected(basePath: string | undefined = undefined, useSnapshot = true) {
+async function readFilesDefaultCollected(basePath: string | undefined = undefined, patterns: string[] = ['/**/*.py'], useSnapshot = true) {
     const rootPath = basePath ?? getRootPath();
 
     // Use glob to exclude certain files and return a list of all valid files
     
-    const absolutePathList = await globFiles(rootPath, ['**/*.py']);
+    const absolutePathList = await globFiles(rootPath, patterns);
 
     const fileGetter = useSnapshot
         ? async (filePath: string) => {
@@ -178,6 +178,10 @@ async function readFilesDefaultCollected(basePath: string | undefined = undefine
     const fileList: [string, string][] = [];
     await readFileFromPathList(absolutePathList, fileList);
 
+    // Convert first element (file path) to lowercase drive letter for each entry
+    fileList.forEach(entry => {
+        entry[0] = toDriveLetterLowerCasePath(entry[0]);
+    });
     return fileList;
 }
 
@@ -293,6 +297,7 @@ async function globFiles(rootPath: string, globPatterns: string[] = []) {
         ? globPatterns
         : '/**/*';
 
+    // NOTE for the glob library, using relative glob, each pattern must start with '/'
     const pathList = await glob(globPatternStr, {
         root: rootPath,
         windowsPathsNoEscape: true,
@@ -340,7 +345,6 @@ export async function readMostRelatedFiles() {
     // DEBUG
     const fileContents: [string, string][] = [];
     const specialRelativePaths = [
-        'modules',
         'extensions-builtin/ScuNET/scripts',
         'extensions-builtin/SwinIR/scripts',
         'official/nlp/bert',
@@ -351,6 +355,13 @@ export async function readMostRelatedFiles() {
         const extraFileContents = await readFilesDefaultCollected(path.join(workspaceRoot, p));
         fileContents.push(...extraFileContents);
     }
+
+    const specialRelativeFilePatterns = [
+        '/modules/*_model.py',
+        '/modules/modelloader.py'
+    ];
+    const extraFileContents = await readFilesDefaultCollected(workspaceRoot, specialRelativeFilePatterns);
+    fileContents.push(...extraFileContents);
 
     return fileContents;
 }
