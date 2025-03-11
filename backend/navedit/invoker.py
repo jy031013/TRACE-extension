@@ -125,7 +125,7 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         binary_predictions = (probability >= threshold).astype(int)
 
     # decode and log the whole sequence
-    input_logit_sequence = source_ids
+    input_logit_sequence = source_ids[0]
     input_string = invoker_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
 
     torch.sigmoid(logits).detach().cpu().numpy()
