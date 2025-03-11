@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseNavEditLocator, ResponseNavEditInvoker } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseNavEditLocator, ResponseNavEditInvoker, ResponseNavEditDefRefInfo } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
@@ -367,7 +367,7 @@ async function requestInvokerAndLocationByNavEdit(
     lspServiceName: PreJudgedLspType,
     lspFoundLocations: RequestLspFoundLocation[],
     cachedRenameOperation: CachedRenameOperation | undefined
-): Promise<ResponseNavEditInvoker | ['rename', Refactor] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
+): Promise<ResponseNavEditInvoker | ['rename', Refactor] | ['def&ref', ResponseNavEditDefRefInfo] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
 
     const invokerInput: RequestNavEditInvoker = {
         language: language,
@@ -386,25 +386,29 @@ async function requestInvokerAndLocationByNavEdit(
     if (!invokerOutput) return undefined;
 
     // TODO add strict format check for each "valid type" of locatorOutput
-    if ('type' in invokerOutput && invokerOutput?.type === 'rename') {
-        // Old-fashion way, by intentional renaming twice to trigger rename provider
-
-        // const refactorInfo = invokerOutput.info;
-        // const renameRefactor = await createRenameRefactor(
-        //     refactorInfo.file,
-        //     refactorInfo.line,
-        //     refactorInfo.beforeText,
-        //     refactorInfo.afterText
-        // );
-        // if (renameRefactor) {
-        //     return ['rename', renameRefactor];
-        // }
-        
-        if (cachedRenameOperation) {
-            const renameRefactor = createDeterminedRenameRefactor(cachedRenameOperation.identifier, cachedRenameOperation.ranges);
-            return ['rename', renameRefactor];
-        } else {
-            console.trace('no cached rename operation found, nothing is done');
+    if ('type' in invokerOutput) {
+        if (invokerOutput.type === 'rename') {
+            // Old-fashion way, by intentional renaming twice to trigger rename provider
+    
+            // const refactorInfo = invokerOutput.info;
+            // const renameRefactor = await createRenameRefactor(
+            //     refactorInfo.file,
+            //     refactorInfo.line,
+            //     refactorInfo.beforeText,
+            //     refactorInfo.afterText
+            // );
+            // if (renameRefactor) {
+            //     return ['rename', renameRefactor];
+            // }
+            
+            if (cachedRenameOperation) {
+                const renameRefactor = createDeterminedRenameRefactor(cachedRenameOperation.identifier, cachedRenameOperation.ranges);
+                return ['rename', renameRefactor];
+            } else {
+                console.trace('no cached rename operation found, nothing is done');
+            }
+        } else if (invokerOutput.type === 'def&ref') {
+            return ['def&ref', invokerOutput.info as ResponseNavEditDefRefInfo];
         }
     } else if ('files' in invokerOutput) {
         return ['location', invokerOutput.files]; 
