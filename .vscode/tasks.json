@@ -32,7 +32,7 @@
 		{
 			"type": "shell",
 			"label": "reset-example-3",
-			"command": "git checkout f4f3b^1",
+			"command": "git checkout f3193^1",
 			"options": {
 				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/keras"
 			},
