@@ -106,13 +106,15 @@ def find_clone_in_project(files, query: str, threshold=80, lsp_style=False):
                     if segment["score"] < threshold:
                         continue
                     if not lsp_style:
-                        found_clones.append({
+                        response = {
                             "file_path": file_path,
                             "score": segment["score"],
                             "matched_lines": segment["matched_lines"]
-                        })
+                        }
+                        if response not in found_clones:
+                            found_clones.append(response)
                     else:
-                        found_clones.append({
+                        response = {
                             "file_path": file_path,
                             "score": segment["score"],
                             "start": {
@@ -123,6 +125,8 @@ def find_clone_in_project(files, query: str, threshold=80, lsp_style=False):
                                 "line": segment["matched_lines"][-1],
                                 "col": 0
                             }
-                        })
+                        }
+                        if response not in found_clones:
+                            found_clones.append(response)
 
     return found_clones
