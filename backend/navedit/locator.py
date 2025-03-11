@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import json
 
 from tqdm import tqdm
 from rank_bm25 import BM25Okapi
@@ -321,7 +322,14 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
                 all_preds.append(output)
                 all_confidences.append(confidences)
 
-                logger.debug(f'>>> [Locator] has predicted labels of lines:\nInput:\n{input_string}\nOutput:\n{all_preds}\nConfidence:\n{all_confidences}')
+                all_preds_with_confidence = [[pred, confidence] for pred, confidence in zip(output, confidences)]
+                str_all_preds_with_confidence = [f"    [{pred}, {confidence}]" for pred, confidence in all_preds_with_confidence]
+                logged_all_preds_with_confidence = '\n'.join([
+                    '[',
+                    ',\n'.join(str_all_preds_with_confidence),
+                    ']'
+                    ])   # avoid an extra linebreak when preds is empty
+                logger.debug(f'>>> [Locator] has predicted labels of lines:\nInput:\n{input_string}\nOutput with confidences:\n{logged_all_preds_with_confidence}')
     
     return all_preds,all_confidences
 
