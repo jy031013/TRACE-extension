@@ -247,8 +247,8 @@ async function predictEdit() {
             const contextLinesBefore = 3;
             const contextLinesAfter = 3;
 
-            const contextStartLine = Math.max(startLine - contextLinesBefore, 0);
-            const contextEndLine = Math.min(endLine + contextLinesAfter, fileLines.length);
+            contextStartLine = Math.max(startLine - contextLinesBefore, 0);
+            contextEndLine = Math.min(endLine + contextLinesAfter, fileLines.length);
     
             const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
             const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
@@ -321,7 +321,7 @@ async function predictEdit() {
             contextEndLine,
             replacementStringsOfEntireBlock,
             tempWrite,
-            false
+            editType === 'add'
         );
         await selector.init();
         await selector.editDocumentAndShowDiff();

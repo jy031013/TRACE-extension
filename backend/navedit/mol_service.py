@@ -5,7 +5,7 @@ import torch
 from model_cache import load_model_with_cache
 from .utils import *
 from .logic_gate import logic_gate
-from .is_clone import find_clone_in_project
+from .logic_gate.is_clone import find_clone_in_project
 from .invoker import load_model_invoker, ask_invoker
 from .locator import load_model_locator, predict_sliding_windows
 from .generator import load_model_generator, generate_edit
