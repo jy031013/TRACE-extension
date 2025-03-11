@@ -84,7 +84,7 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
     eval_dataloader = DataLoader(all_source_ids,sampler=sampler, batch_size=1)
 
     # decode and log the whole sequence
-    input_logit_sequence = all_source_ids.tensors[0]
+    input_logit_sequence = all_source_ids.tensors[0][0]
     input_string = generator_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
 
     # run model
