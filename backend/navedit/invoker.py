@@ -3,8 +3,14 @@ import torch
 import numpy as np
 import torch.nn as nn
 from transformers import RobertaConfig, RobertaModel, RobertaTokenizer
+import pandas as pd
+
+pd.set_option('display.float_format', '{:.4f}'.format)
 
 from .rich_semantic import finer_grain_window
+from navedit.logging import setup_default_logger
+
+logger = setup_default_logger(__name__)
 
 class Invoker(nn.Module):
     """
@@ -117,7 +123,17 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         probability = torch.sigmoid(logits).detach().cpu().numpy()
         print(f"+++ Probability from Invoker: {probability}")
         binary_predictions = (probability >= threshold).astype(int)
-    
+
+    # decode and log the whole sequence
+    input_logit_sequence = source_ids
+    input_string = invoker_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
+
+    torch.sigmoid(logits).detach().cpu().numpy()
+
+    df = pd.DataFrame(probability, columns=['rename0', 'rename1', 'def&ref', 'clone'])
+
+    logger.debug(f'>>> [Invoker] has predicted confidences of edit types:\nInput:\n{input_string}\nConfidence:\n{df.to_string()}')
+
     results = []
     for prediction in binary_predictions:
         if prediction[0] == 1 or prediction[1] == 1:

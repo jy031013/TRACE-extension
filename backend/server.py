@@ -5,28 +5,15 @@ import configparser
 
 from waitress import serve
 from flask import Flask, config, request, make_response
+
 from navedit.mol_service import invoker_interface, locator_interface, generator_interface
+from navedit.logging import setup_default_logger
 
 app = Flask(__name__)
 
 SUPPORTED_LANGUAGES = ["go", "python", "java", "typescript", "javascript"]
 
-LOGGING_BASIC_FORMAT = '[%(asctime)s][%(name)s][%(levelname)s] %(message)s'
-logging.basicConfig(level=logging.WARNING, format=LOGGING_BASIC_FORMAT)
-
-logger = logging.getLogger(__name__)
-logger.propagate = False
-logger.setLevel(logging.DEBUG)
-
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter(LOGGING_BASIC_FORMAT))
-console_handler.setLevel(logging.INFO)
-logger.addHandler(console_handler)
-
-file_handler = logging.FileHandler('server.log')
-file_handler.setFormatter(logging.Formatter(LOGGING_BASIC_FORMAT))
-file_handler.setLevel(logging.DEBUG)
-logger.addHandler(file_handler)
+logger = setup_default_logger(__name__)
 
 logger.info("Modules loaded. Starting server...")
 

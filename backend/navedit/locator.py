@@ -3,9 +3,13 @@ import torch.nn as nn
 
 from tqdm import tqdm
 from rank_bm25 import BM25Okapi
-from .code_window import CodeWindow
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import RobertaTokenizer, T5Config, T5ForConditionalGeneration
+
+from .code_window import CodeWindow
+from navedit.logging import setup_default_logger
+
+logger = setup_default_logger(__name__)
 
 class Locator(nn.Module):
     """
@@ -280,10 +284,20 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
         with torch.no_grad():
             lm_logits = locator(source_ids=source_ids,source_mask=source_mask, train=False).to(device)
             lm_logits = torch.nn.functional.softmax(lm_logits, dim=-1)
-                # extract masked edit operations
+            # extract masked edit operations
             for i in range(lm_logits.shape[0]): # for sample within batch
                 output = []
                 confidences = []
+
+                # decode and log the whole sequence
+                input_logit_sequence = source_ids[i]
+                input_string = locator_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
+
+                # output_logit_sequence = torch.argmax(lm_logits[i], dim=-1)
+                # output_string = locator_tokenizer.decode(output_logit_sequence, clean_up_tokenization_spaces=False)
+
+                # output_confidence = torch.max(lm_logits[i], dim=-1).values.detach().cpu().numpy()
+
                 for j in range(lm_logits.shape[1]): # for every token
                     if source_ids[i][j] == locator.inline_mask_id or source_ids[i][j] == locator.inter_mask_id: # if is masked
                         pred_label = locator_tokenizer.decode(torch.argmax(lm_logits[i][j]),clean_up_tokenization_spaces=False)
@@ -306,6 +320,8 @@ def locator_predict(locator, locator_tokenizer, device, file_path, locator_datal
                         confidences.append(confidence)
                 all_preds.append(output)
                 all_confidences.append(confidences)
+
+                logger.debug(f'>>> [Locator] has predicted labels of lines:\nInput:\n{input_string}\nOutput:\n{all_preds}\nConfidence:\n{all_confidences}')
     
     return all_preds,all_confidences
 

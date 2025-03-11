@@ -1,6 +1,7 @@
 import torch
 import time
 import torch.nn as nn
+import json
 
 from rank_bm25 import BM25Okapi
 from transformers import (RobertaTokenizer, T5Config, T5ForConditionalGeneration)
@@ -8,6 +9,9 @@ from transformers import RobertaTokenizer
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 
 from .code_window import CodeWindow
+from navedit.logging import setup_default_logger
+
+logger = setup_default_logger(__name__)
 
 MODEL_CLASSES = {'codet5': (T5Config, T5ForConditionalGeneration, RobertaTokenizer)}
 
@@ -79,8 +83,13 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
     sampler = SequentialSampler(all_source_ids)
     eval_dataloader = DataLoader(all_source_ids,sampler=sampler, batch_size=1)
 
+    # decode and log the whole sequence
+    input_logit_sequence = all_source_ids.tensors[0]
+    input_string = generator_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
+
     # run model
     generator.eval()
+    replacements=[]
     for batch in eval_dataloader:
         batch = tuple(t.to(device) for t in batch)
 
@@ -105,13 +114,15 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
             preds = outputs.sequences
             preds = preds.reshape(source_ids.size(0), 10, -1)
             preds = preds.cpu().numpy()
-            replacements=[]
             for pred, score in zip(preds[0], final_scores): # batch_size=1
                 pred_seq = generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False)
                 replacements.append((pred_seq, score))
 
     # Rank by score in decending order
     replacements.sort(key=lambda x: x[1], reverse=True)
+    
+    logged_output = '\n'.join([f"{r[1]}:\n{r[0]}" for r in replacements])
+    logger.debug(f'>>> [Generator] has predicted replacements:\nInput:\n{input_string}\nOutput:\n{logged_output}')
     
     # discard score
     replacements = [r[0] for r in replacements]
@@ -126,6 +137,7 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
         prefix = "".join(code_window[:min(to_edit_lines)])
         suffix = "".join(code_window[max(to_edit_lines)+1:])
         replacements = [prefix + replacement + suffix for replacement in replacements]
+
 
     return replacements
 
