@@ -79,13 +79,12 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
 
     selected_prev_edits = select_hunk(code_window, inline_labels, inter_labels, prev_edit_hunks, generator_tokenizer)
 
-    all_source_ids = formalize_generator_input(code_window, inline_labels, inter_labels, commit_message, prev_edit_type, selected_prev_edits, generator_tokenizer)
+    all_source_ids, source_seq = formalize_generator_input(code_window, inline_labels, inter_labels, commit_message, prev_edit_type, selected_prev_edits, generator_tokenizer)
     sampler = SequentialSampler(all_source_ids)
     eval_dataloader = DataLoader(all_source_ids,sampler=sampler, batch_size=1)
 
     # decode and log the whole sequence
-    input_logit_sequence = all_source_ids.tensors[0]
-    input_string = generator_tokenizer.decode(input_logit_sequence, clean_up_tokenization_spaces=False)
+    input_string = source_seq
 
     # run model
     generator.eval()
@@ -96,32 +95,20 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
         source_ids = batch[0]
         source_mask = source_ids.ne(generator_tokenizer.pad_token_id)
         with torch.no_grad():
-            outputs = generator.generate(source_ids,
+            preds = generator.generate(source_ids,
                                     attention_mask=source_mask,
                                     use_cache=True,
                                     num_beams=10,
                                     max_length=512,
-                                    num_return_sequences=10,
-                                    return_dict_in_generate=True,
-                                    output_scores=True
+                                    num_return_sequences=10
                                 )
-            sequence_scores = generator.compute_transition_scores(
-                outputs.sequences,  # 生成的 token 序列
-                outputs.scores,  # 生成过程中每个 step 的 logits
-                normalize_logits=True  # 归一化概率
-            )
-            final_scores = [seq_score.mean().item() for seq_score in sequence_scores]
-            preds = outputs.sequences
             preds = preds.reshape(source_ids.size(0), 10, -1)
             preds = preds.cpu().numpy()
-            for pred, score in zip(preds[0], final_scores): # batch_size=1
-                pred_seq = generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False)
-                replacements.append((pred_seq, score))
+            for pred in preds[0]: # batch_size=1
+                replacements.append(generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False))
 
-    # Rank by score in decending order
-    replacements.sort(key=lambda x: x[1], reverse=True)
-    
-    logged_output = '\n'.join([f"{r[1]}:\n{r[0]}" for r in replacements])
+        
+    logged_output = '\n'.join([f"Idx {i}: \n{r}" for i, r in enumerate(replacements)])
     logger.debug(f'>>> [Generator] has predicted replacements:\nInput:\n{input_string}\nOutput:\n{logged_output}')
     
     # discard score
@@ -221,6 +208,6 @@ def formalize_generator_input(sliding_window: list[str], inline_labels: list[str
     encoded_source_seq = tokenizer(source_seq, padding="max_length", truncation=True, max_length=512)
     source_ids = torch.tensor([encoded_source_seq["input_ids"]], dtype=torch.long)
     data = TensorDataset(source_ids)
-    return data
+    return data, source_seq
     
 
