@@ -9,3 +9,5 @@ out/
 /models/**
 /mock/
 !/models/MODEL.md
+/backend/navedit/tree-sitter/
+server.log*
