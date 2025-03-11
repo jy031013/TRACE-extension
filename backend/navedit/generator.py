@@ -106,13 +106,9 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
             preds = preds.cpu().numpy()
             for pred in preds[0]: # batch_size=1
                 replacements.append(generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False))
-
-        
+ 
     logged_output = '\n'.join([f"Idx {i}: \n{r}" for i, r in enumerate(replacements)])
     logger.debug(f'>>> [Generator] has predicted replacements:\nInput:\n{input_string}\nOutput:\n{logged_output}')
-    
-    # discard score
-    replacements = [r[0] for r in replacements]
     
     if "<replace>" not in inline_labels and "<delete>" not in inline_labels and "<insert>" in inter_labels:
         assert inter_labels.count("<insert>") == 1
