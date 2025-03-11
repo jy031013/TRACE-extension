@@ -265,14 +265,13 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
 
         if sliding_window["file_path"] not in locator_response:
             locator_response[sliding_window["file_path"]] = []
-        else:
-            locator_response[sliding_window["file_path"]].append({
-                "code_window_start_line": sliding_window["start_line_idx"],
-                "inline_labels": inline_preds,
-                "inter_labels": inter_preds,
-                "inline_confidences": inline_confidences,
-                "inter_confidences": inter_confidences
-            })
+        locator_response[sliding_window["file_path"]].append({
+            "code_window_start_line": sliding_window["start_line_idx"],
+            "inline_labels": inline_preds,
+            "inter_labels": inter_preds,
+            "inline_confidences": inline_confidences,
+            "inter_confidences": inter_confidences
+        })
             
     return locator_response
 
