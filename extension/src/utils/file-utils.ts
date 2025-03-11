@@ -306,13 +306,16 @@ async function globFiles(rootPath: string, globPatterns: string[] = []) {
         ignore: gitignorePatterns["exclude"],
         nodir: true
     });
-    const reincludedPathList = await glob(gitignorePatterns["include"], {
-        root: rootPath,
-        windowsPathsNoEscape: true,
-        ignore: gitignorePatterns["permExclude"],
-        nodir: true
-    });
-    return pathList.concat(reincludedPathList);
+    
+    // const reincludedPathList = await glob(gitignorePatterns["include"], {
+    //     root: rootPath,
+    //     windowsPathsNoEscape: true,
+    //     ignore: gitignorePatterns["permExclude"],
+    //     nodir: true
+    // });
+    // return pathList.concat(reincludedPathList);
+
+    return pathList;
 }
 
 function replaceCurrentSnapshot(fileList: [string, string | undefined][]) {
@@ -360,7 +363,7 @@ export async function readMostRelatedFiles() {
         '/modules/gfpgan_model.py',
         '/modules/modelloader.py',
         '/keras/layers/core.py',
-        '/sklearn/tree',
+        '/sklearn/tree/_classes.py',
         '/official/nlp/bert/input_pipeline.py',
         '/official/nlp/bert/run_classifier.py'
     ];
