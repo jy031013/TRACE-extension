@@ -131,7 +131,9 @@ def make_locator_dataset(sliding_windows: list, prev_edit_hunks: list,
         source_seq = formalize_locator_input(sliding_window, commit_msg, prior_edits, locator_tokenizer)
         source_seqs.append(source_seq)
         
-    encoded_source_seq = locator_tokenizer(source_seqs, padding="max_length", truncation=True, max_length=512)
+    if len(source_seqs) == 0:
+        return TensorDataset(torch.tensor([]), torch.tensor([]))
+    encoded_source_seq = locator_tokenizer(source_seqs, padding="max_length", truncation=True, max_length=512)  # FIXME
     
     source_ids = torch.tensor(encoded_source_seq["input_ids"])
     source_mask = torch.tensor(encoded_source_seq["attention_mask"])
