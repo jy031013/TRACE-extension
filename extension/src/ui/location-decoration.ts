@@ -37,10 +37,10 @@ export class LocationResultDecoration {
 				let startLine = loc.atLines[0];
 				let endLine = loc.atLines[loc.atLines.length - 1];
 
-				if (loc.editType === "add") {	// the model was designed to add content after the mark line
-					startLine += 1;
-					endLine += 1;
-				}
+				// if (loc.editType === "add") {	// the old model was designed to add content after the mark line
+				// 	startLine += 1;
+				// 	endLine += 1;
+				// }
 
 				return {
 					location: new vscode.Location(
