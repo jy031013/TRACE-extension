@@ -57,7 +57,7 @@ def load_model_invoker(invoker_file, device):
     config.vocab_size = len(tokenizer)
     invoker = Invoker(encoder, config)
     
-    invoker.load_state_dict(torch.load(invoker_file, map_location=device))
+    invoker.load_state_dict(torch.load(invoker_file, map_location=device, weights_only=True))
     invoker.to(device)
     return invoker, tokenizer
 
