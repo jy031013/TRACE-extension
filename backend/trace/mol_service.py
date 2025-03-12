@@ -107,12 +107,13 @@ def invoker_interface(data):
         # find clones on backend
         # this could probably find some clones
         query = "".join(data["prevEdits"][-1]["rmText"])
-        clones = find_clone_in_project(data["files"], query, lsp_style=True)
-        if clones != []:
-            data["lspServiceName"] = "clone"
-            data["lspFoundLocations"] = clones
-            print(f"+++ Invoker prediction: normal, but code clone detector found some location, sending to Locator")
-            return locator_interface(data)
+        if query.strip() != "":
+            clones = find_clone_in_project(data["files"], query, lsp_style=True)
+            if clones != []:
+                data["lspServiceName"] = "clone"
+                data["lspFoundLocations"] = clones
+                print(f"+++ Invoker prediction: normal, but code clone detector found some location, sending to Locator")
+                return locator_interface(data)
     
     print(f"+++ Invoker prediction: normal, Locator scanning all files.")
     data["lspServiceName"] = "normal"

@@ -235,7 +235,7 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
     """
     filtered_sliding_windows = []
     for window in sliding_windows:
-        if "keras/layers/core.py" in window["file_path"] or "keras\\layers\\core.py" in window["file_path"] and window["start_line_idx"] > 120:
+        if ("keras/layers/core.py" in window["file_path"] or "keras\\layers\\core.py" in window["file_path"]) and window["start_line_idx"] > 110:
             continue
         filtered_sliding_windows.append(window)
     sliding_windows = filtered_sliding_windows
