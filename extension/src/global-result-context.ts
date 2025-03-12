@@ -9,6 +9,7 @@ import { getLineInfoInDocument } from "./utils/file-utils";
 import { diffWords } from "diff";
 import { CodeRangesInFile } from "./editor-state-monitor";
 import { ResponseEditLocationWithLabels, ResponseTRACELocator } from "./services/backend-requests";
+import { statisticsCollector } from "./statistics";
 
 // TODO consider using/transfering to `async-lock` for this
 class EditLock {
@@ -50,6 +51,9 @@ class QuerySettings {
         
         if (userInput) {
             this.commitMessage = userInput;
+            statisticsCollector.addLog("action", "User input non-empty commit message");
+        } else {
+            statisticsCollector.addLog("action", "User setting an empty commit message");
         }
         return userInput;   // returns undefined if canceled
     }
@@ -372,6 +376,8 @@ export class QueryContext extends DisposableComponent {
         super();
         this.register(
             vscode.commands.registerCommand('trace.inputMessage', () => {
+                statisticsCollector.addLog("command", "trace.inputMessage");
+
                 this.querySettings.inputCommitMessage();
             })
         );

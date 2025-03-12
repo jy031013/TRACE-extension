@@ -58,6 +58,14 @@ def post_trace_invoker():
 def post_trace_locator():
     return run_predict('trace-locator', locator_interface)
 
+@app.route('/statistics', methods=['POST'])
+def post_statistics():
+    json_str = request.data.decode('utf-8')
+    input_json = json.loads(json_str)
+    logger.debug(f'Accepting statistics: \n{json.dumps(input_json, indent=4)}')
+
+    return make_plain_text_response('ok')
+
 if __name__ == '__main__':
     # app.run(host='0.0.0.0', port=5001, debug=True)
     config = configparser.ConfigParser()

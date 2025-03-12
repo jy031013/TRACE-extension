@@ -104,6 +104,10 @@ async function postRequestToGenerator(data: RequestGenerator): Promise<ResponseG
     return await basicQuery("content", data);
 }
 
+export async function postRequestToStatistics(data: object): Promise<ResponseGenerator | undefined> {
+    return await basicQuery("statistics", data);
+}
+
 export {
     postRequestToDiscriminator,
     postRequestToLocator,

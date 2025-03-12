@@ -5,6 +5,7 @@ import path from 'path';
 import { DisposableComponent } from '../utils/base-component';
 import { defaultLineBreak, globalQueryContext } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
+import { statisticsCollector } from '../statistics';
 
 class BaseTempFileProvider extends DisposableComponent implements vscode.FileSystemProvider {
     private _onDidChangeFile: vscode.EventEmitter<vscode.FileChangeEvent[]>;
@@ -180,6 +181,8 @@ class EditSelector {
         // Register a listener to reset the edit when the compare view is closed
         this._compareViewOnCloseDisposable = vscode.window.tabGroups.onDidChangeTabs((e) => {
             if (e.closed.some(tab => this.matchTab(tab))) {
+                statisticsCollector.addLog("action", "Edit is closed without accepted");
+
                 this.clearEdit();
                 this.dispose();
             }

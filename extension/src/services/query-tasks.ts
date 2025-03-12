@@ -11,6 +11,7 @@ import { splitLines } from '../utils/utils';
 import { globalEditInfoCollector } from '../editor-state-monitor';
 import { PreJudgedLspType, RequestLspFoundLocation } from './backend-requests';
 import path from 'path';
+import { statisticsCollector } from '../statistics';
 
 /**
  * @deprecated This function is obsolete. Fetching previous edits in the new way is not implemented yet;
@@ -48,6 +49,8 @@ async function predictLocationByTRACE() {
     //     vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
     //     return;
     // }
+    statisticsCollector.addLog("command", "trace.predictLocations");
+
     return await globalEditLock.tryWithLock(async () => {
         return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
             return await _predictLocationByTRACE();
@@ -57,7 +60,12 @@ async function predictLocationByTRACE() {
 
 async function _predictLocationByTRACE() {
     const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
-    if (commitMessage === undefined) return;
+    if (commitMessage === undefined) {
+        statisticsCollector.addLog("action", "trace.predictLocations quited for disposing commit message input");
+        return;
+    }
+
+    statisticsCollector.addLog("action", "trace.predictLocations accepted commit message");
 
     statusBarItem.setStatusLoadingFiles();
     
@@ -93,6 +101,8 @@ async function _predictLocationByTRACE() {
     } = await globalEditInfoCollector.exportAnalyzedEdits();
 
     try {
+        statisticsCollector.addLog("action", "trace.predictLocations invoker <-");
+
         statusBarItem.setStatusQuerying("locator");
         // TODO depart this step, because it is not parallel to other steps
         
@@ -108,10 +118,13 @@ async function _predictLocationByTRACE() {
         if (invokerResult) {
             if (invokerResult instanceof Array) {
                 if (invokerResult[0] === 'rename') {
+                    statisticsCollector.addLog("action", "trace.predictLocations invoker -> rename");
                     globalQueryContext.updateRefactor(invokerResult[1]);
                 } else if (invokerResult[0] === 'location') {
                     globalQueryContext.updateTRACELocations(invokerResult[1]);
+                    statisticsCollector.addLog("action", "trace.predictLocations invoker -> direct locator");
                 } else if (invokerResult[0] === 'def&ref') {
+                    statisticsCollector.addLog("action", "trace.predictLocations invoker -> def&ref");
                     const symbolInfo = invokerResult[1];
 
                     const correspondingInfoType = symbolInfo.type === 'def' ? 'ref' : 'def';
@@ -126,6 +139,12 @@ async function _predictLocationByTRACE() {
                             new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
                         )
                     });
+
+                    if (focusedLspFoundLocation.length > 0) {
+                        statisticsCollector.addLog("action", "trace.predictLocations locator <- some def&ref");
+                    } else {
+                        statisticsCollector.addLog("action", "trace.predictLocations locator <- no def&ref");
+                    }
 
                     const locatorResult = focusedLspFoundLocation.length > 0
                         ? await requestTRACELocator(
@@ -162,6 +181,8 @@ async function _predictLocationByTRACE() {
                     cachedRenameOperation
                 );
 
+                statisticsCollector.addLog("action", "trace.predictLocations locator <- normal");
+                
                 if (locatorResult) {
                     globalQueryContext.updateTRACELocations(locatorResult.files);
                 }
@@ -188,6 +209,8 @@ async function predictEdit() {
     //     vscode.window.showInformationMessage(`Predicting edit canceled: language ${globalEditorState.language} not supported yet.`);
     //     return;
     // }
+    statisticsCollector.addLog("command", "trace.generateEdits");
+    
     return await globalEditLock.tryWithLock(async () => {
         return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Generating...' }, async () => {
             return await _predictEdit();
@@ -197,7 +220,10 @@ async function predictEdit() {
 
 async function _predictEdit() {
     const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
-    if (commitMessage === undefined) return;
+    if (commitMessage === undefined) {
+        statisticsCollector.addLog("action", "trace.generateEdits quited for disposing commit message input");
+        return;
+    }
     
     const activeEditor = vscode.window.activeTextEditor;
     const activeDocument = activeEditor?.document;
@@ -290,6 +316,8 @@ async function _predictEdit() {
         }
 
         if (shouldUseOriginalCodeWindow) {
+            statisticsCollector.addLog("action", "trace.generateEdits generator <- manual locations");
+
             startLine = fromLine;
             endLine = toLine + 1;
 
@@ -300,6 +328,8 @@ async function _predictEdit() {
             } else {
                 inlineLabels = new Array(endLine - startLine).fill('<replace>');
             }
+        } else {
+            statisticsCollector.addLog("action", "trace.generateEdits generator <- suggested locations");
         }
         
         let contextStartLine = startLine;
@@ -348,6 +378,8 @@ async function _predictEdit() {
         );
 
         if (!replacementStringsOfEntireBlock) { return; }
+
+        statisticsCollector.addLog("action", "trace.generateEdits generator ->");
         
         // Remove syntax-level unchanged replacements
         // TODO specify this step to a function
@@ -404,6 +436,8 @@ class PredictLocationCommand extends DisposableComponent {
 		this.register(
             vscode.commands.registerCommand("trace.predictLocations", predictLocationByTRACE),
             vscode.commands.registerCommand("trace.clearLocations", async () => {
+                statisticsCollector.addLog("command", "trace.clearLocations");
+
                 globalQueryContext.clearResults();
             })
 		);
@@ -456,18 +490,26 @@ class GenerateEditCommand extends DisposableComponent {
         }
         return vscode.Disposable.from(
             vscode.commands.registerCommand("trace.lastSuggestion", async () => {
+                statisticsCollector.addLog("command", "trace.lastSuggestion");
+
                 await switchEdit(-1);
             }),
             vscode.commands.registerCommand("trace.nextSuggestion", async () => {
+                statisticsCollector.addLog("command", "trace.nextSuggestion");
+
                 await switchEdit(1);
             }),
             vscode.commands.registerCommand("trace.acceptEdit", async () => {
+                statisticsCollector.addLog("command", "trace.acceptEdit");
+
                 globalEditorState.toPredictLocation = true;
                 await acceptEdit();
                 globalQueryContext.clearResults();
                 // await closeTab();
             }),
             vscode.commands.registerCommand("trace.dismissEdit", async () => {
+                statisticsCollector.addLog("command", "trace.dismissEdit");
+
                 await clearEdit();
                 // await closeTab();
             })

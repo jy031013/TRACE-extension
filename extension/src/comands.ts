@@ -4,11 +4,14 @@ import { limitNum } from "./utils/utils";
 import { globalEditInfoCollector } from "./editor-state-monitor";
 import { FileEdits } from "./utils/base-types";
 import { createVirtualModifiedFileUri } from "./views/compare-view";
+import { statisticsCollector } from "./statistics";
 // import { addUserStatItem } from "./global-context";
 
 export function registerBasicCommands() {
 	return vscode.Disposable.from(
 		vscode.commands.registerCommand('trace.openFileAtLine', async (filePath, fromLine, toLine) => {
+			statisticsCollector.addLog("command", "trace.openFileAtLine");
+
 			const uri = vscode.Uri.file(filePath); // Replace with dynamic file path
 
 			const document = await vscode.workspace.openTextDocument(uri);
@@ -26,6 +29,8 @@ export function registerBasicCommands() {
 			editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 		}),
 		vscode.commands.registerCommand('trace.clearPrevEdits', async () => {
+			statisticsCollector.addLog("command", "trace.clearPrevEdits");
+
 			globalEditInfoCollector.clearHistory();
 			await vscode.window.showInformationMessage("Previous edits cleared!");
 			// addUserStatItem("clearPrevEdits");

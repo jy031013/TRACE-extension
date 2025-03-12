@@ -1,5 +1,6 @@
 import { boolean } from 'io-ts';
 import * as vscode from 'vscode';
+import { postRequestToStatistics } from './services/backend-requests';
 
 interface Log {
     timestamp: number;
@@ -16,18 +17,34 @@ export class StatisticsCollector {
     private __statisticsCollectionDisposables = new Set<vscode.Disposable>();
     private logs: Log[] = [];
 
+    private uploadingStatisticsTimeout: NodeJS.Timeout | undefined;
+
     constructor() {
         this.metrics = new Map();
         this.timestamps = new Map();
     }
 
     enable() {
-        
+        // this.__statisticsCollectionDisposables.add(vscode.workspace.onDidSaveTextDocument((document) => {
+        //     this.addLog("save", document.uri.toString());
+        // }
+        // ));
+        this.uploadingStatisticsTimeout = setInterval(async () => {
+            await this.sendAllMetrics(async (metrics) => (await postRequestToStatistics(
+                this.wrapUserId(metrics)
+            )) ? true : false);
+            await this.sendAllLogs(async (logs) => (await postRequestToStatistics(
+                this.wrapUserId(logs)
+            )) ? true : false);
+        }, 3000);
     }
 
     disable() {
         this.__statisticsCollectionDisposables.forEach((d) => d.dispose());
         this.__statisticsCollectionDisposables.clear();
+
+        this.uploadingStatisticsTimeout && clearInterval(this.uploadingStatisticsTimeout);
+        this.uploadingStatisticsTimeout = undefined;
     }
 
 
@@ -64,7 +81,8 @@ export class StatisticsCollector {
             summary[key] = {
                 value,
                 lastUpdated: this.getLastTimestamp(key),
-                updateCount: this.getUpdateCount(key)
+                updateCount: this.getUpdateCount(key),
+                timestamps: this.timestamps.get(key) || []
             };
         });
 
@@ -89,9 +107,16 @@ export class StatisticsCollector {
         this.timestamps.clear();
     }
 
-    async sendAllMetrics(sender: (metrics: Map<string, number>) => boolean | Promise<boolean>) {
+    async sendAllMetrics(sender: (data: object) => boolean | Promise<boolean>) {
         try {
-            if (await Promise.resolve(sender(this.metrics))) {
+            if (this.timestamps.size <= 0) {
+                return;
+            }
+
+            const summary = this.getSummary();
+            if (await Promise.resolve(sender({
+                statistics: summary
+            }))) {
                 this.metrics.clear();
                 this.timestamps.clear();
             }
@@ -109,16 +134,28 @@ export class StatisticsCollector {
         this.logs.push(log);
     }
 
-    async sendAllLogs(sender: (logs: Log[]) => boolean | Promise<boolean>) {
+    async sendAllLogs(sender: (data: object) => boolean | Promise<boolean>) {
         try {
-            if (await Promise.resolve(sender(this.logs))) {
+            if (this.logs.length <= 0) {
+                return;
+            }
+
+            if (await Promise.resolve(sender({
+                logs: this.logs
+            }))) {
                 this.logs = [];
             }
         } catch (e) {
             console.error("Error sending logs:", e);
         }
     }
+
+    wrapUserId(data: any) {
+        const userId = vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? "unknown workspace folder";
+        return { userId, data };
+    }
 }
 
 // Create a singleton instance
-export const statistics = new StatisticsCollector();
+export const statisticsCollector = new StatisticsCollector();
+statisticsCollector.enable();
