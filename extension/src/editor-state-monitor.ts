@@ -939,20 +939,20 @@ class EditReducer {
         
         // Prepare all the old edits on the path
         const oldEditsWithIdx: { idx: number, edit: EditWithTimestamp }[] = [];
-        const oldEditIndices = new Set();
+        const oldEditIndicesOnFile = new Set();
         this.editList.forEach((edit, idx) => {
             if (edit.uriString === uriString) {
                 oldEditsWithIdx.push({
                     idx: idx,
                     edit: edit
                 });
-                oldEditIndices.add(idx);
+                oldEditIndicesOnFile.add(idx);
             }
         });
         oldEditsWithIdx.sort((edit1, edit2) => edit1.edit.line - edit2.edit.line);	// sort in starting line order
         
         // Maintain a new list about old edits that are kept
-        const oldAdjustedEditsWithIdx = new Map();
+        const leftOldEditsOnFile = new Map();
 
         // Compute new edits from the snapshot after old edits
         const newDiffs = diffLines(
@@ -999,6 +999,8 @@ class EditReducer {
             return newEdit;
         }
 
+        // What we need is all the new edits
+        // If some new edits were overlapped or adjoined with the new edit we just remove it
         function pushOldEditMerge(newEdit: EditWithTimestamp) {
             const newEditFromLine = newEdit.line;
             const newEditToLine = newEdit.line + newEdit.rmLine;
@@ -1006,9 +1008,9 @@ class EditReducer {
             // skip to the first old edit that is probably involved
             while (
                 oldEditIdx < oldEditsWithIdx.length &&
-                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine <= newEditFromLine
+                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine < newEditFromLine
             ) {
-                oldAdjustedEditsWithIdx.set(oldEditsWithIdx[oldEditIdx].idx, oldEditsWithIdx[oldEditIdx].edit);
+                leftOldEditsOnFile.set(oldEditsWithIdx[oldEditIdx].idx, oldEditsWithIdx[oldEditIdx].edit);
                 ++oldEditIdx;
             }
     
@@ -1030,7 +1032,7 @@ class EditReducer {
                 newEdit.timestamp = Math.min(
                     ...oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
                 );
-                oldAdjustedEditsWithIdx.set(minIdx, newEdit);
+                leftOldEditsOnFile.set(minIdx, newEdit);
             } else {
                 newEdits.push(newEdit);
             }
@@ -1071,9 +1073,9 @@ class EditReducer {
         // only modifying those affected in the old adjusted edits of that path
         const oldAdjustedEdits: EditWithTimestamp[] = [];
         this.editList.forEach((edit, idx) => {
-            if (oldEditIndices.has(idx)) {
-                if (oldAdjustedEditsWithIdx.has(idx)) {
-                    oldAdjustedEdits.push(oldAdjustedEditsWithIdx.get(idx));
+            if (oldEditIndicesOnFile.has(idx)) {
+                if (leftOldEditsOnFile.has(idx)) {
+                    oldAdjustedEdits.push(leftOldEditsOnFile.get(idx));
                 }
 			} else {
 				oldAdjustedEdits.push(edit);
