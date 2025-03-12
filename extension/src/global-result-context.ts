@@ -400,6 +400,7 @@ export class QueryContext extends DisposableComponent {
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {
             const fileLocations = locationsByFile[filePath];
+
             locationsByFile[filePath] = fileLocations.filter((loc) => {
                 const inlineLabels = loc.inline_labels;
                 const confidence = loc.inline_confidences;
@@ -411,7 +412,12 @@ export class QueryContext extends DisposableComponent {
                     }
                     return true;
                 });
+
+                // FIXME not filtering inter-line labels, and the threshold is not working
             });
+
+            // do splitting
+            locationsByFile[filePath] = this.preProcessLocations(locationsByFile[filePath]);
         }
 
 
@@ -487,10 +493,6 @@ export class QueryContext extends DisposableComponent {
             locations.push([uri, fileLocations]);
         }
 
-        for (const uriLocs of locations) {
-            uriLocs[1] = this.preProcessLocations(uriLocs[1]);
-        }
-
         this.activeNavEditLocationResult = new NavEditLocationResult(locations);
     }
 
@@ -557,7 +559,7 @@ export class QueryContext extends DisposableComponent {
             type: EditType,
             line: number
         }[] = [];
-        
+
         const getLastLoc = () => newLocs[newLocs.length - 1];
 
         // We can merge '<replace>' with adjoined '<insert>'
@@ -585,31 +587,30 @@ export class QueryContext extends DisposableComponent {
                 couldMergeLast = false;
                 return;
             } else {
+                let hasMerged = false;
+                if (couldMergeLast && newLocs.length > 0) {
+                    const lastType = getLastLoc().type;
+                    const mergeResult = tryMergeType(lastType, editedType);
+                    if (mergeResult) {
+                        const [prev, current] = mergeResult;
+                        newLocs.splice(-1, 1, {
+                            type: prev ?? current,
+                            line: prev ? getLastLoc().line : line
+                        });
+                        hasMerged = true;
+                    }
+                }
+                if (!hasMerged) {
+                    newLocs.push({ type: editedType, line });
+                }
                 couldMergeLast = true;
             }
-
-            let hasMerged = false;
-            if (couldMergeLast && newLocs.length > 0) {
-                const lastType = getLastLoc().type;
-                const mergeResult = tryMergeType(lastType, editedType);
-                if (mergeResult) {
-                    const [prev, current] = mergeResult;
-                    newLocs.splice(-1, 1, {
-                        type: prev ?? current,
-                        line: prev ? getLastLoc().line : line
-                    });
-                    hasMerged = true;
-                }
-            }
-            if (!hasMerged) {
-                newLocs.push({ type: editedType, line });
-            }
         };
-        
+
         // Interval join the inline and interline labels
         for (let i = 0; i < numLines; ++i) {
-            processNext(i, loc.inline_labels[i]);
             processNext(i, loc.inter_labels[i]);
+            processNext(i, loc.inline_labels[i]);
         }
         if (loc.inter_labels.length > numLines) {
             processNext(numLines, loc.inter_labels[numLines]);
