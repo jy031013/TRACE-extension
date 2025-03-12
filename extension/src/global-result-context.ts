@@ -395,7 +395,7 @@ export class QueryContext extends DisposableComponent {
     }
 
     updateNavEditLocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
-        const confidenceThreshold = 0.0;
+        const confidenceThreshold = 0.9;
 
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {
@@ -557,7 +557,8 @@ export class QueryContext extends DisposableComponent {
         const numLines = loc.inline_labels.length;
         const newLocs: {
             type: EditType,
-            line: number
+            line: number,
+            count: number
         }[] = [];
 
         const getLastLoc = () => newLocs[newLocs.length - 1];
@@ -567,13 +568,14 @@ export class QueryContext extends DisposableComponent {
         let couldMergeLast = false;
         const tryMergeType = (prevType: EditType, currentType: EditType): [undefined, EditType] | [EditType, undefined] | undefined => {
             if (
-                prevType === '<replace>' && currentType === '<insert>'
+                (prevType === '<replace>' && ['<insert>', '<replace>', '<delete>'].includes(currentType)) || 
+                ((prevType === '<delete>') && currentType === '<delete>')
             ) {
                 return [prevType, undefined];
             }
 
             if (
-                currentType === '<replace>' && prevType === '<insert>'
+                currentType === '<replace>' && ['<insert>', '<delete>'].includes(prevType)
             ) {
                 return [undefined, currentType];
             }
@@ -582,26 +584,28 @@ export class QueryContext extends DisposableComponent {
         };
         const processNext = (line: number, label: string) => {
             const editedType: EditType = label;
-            if (editedType === '<keep>' || editedType === '<null>') {
-                // the next possible edit is already split to last
+            if (editedType === '<keep>') {
+                // the next possible edit is already separated to last
                 couldMergeLast = false;
                 return;
-            } else {
+            } else if (editedType !== '<null>') {
                 let hasMerged = false;
                 if (couldMergeLast && newLocs.length > 0) {
-                    const lastType = getLastLoc().type;
+                    const lastLoc = getLastLoc();
+                    const lastType = lastLoc.type;
                     const mergeResult = tryMergeType(lastType, editedType);
                     if (mergeResult) {
                         const [prev, current] = mergeResult;
                         newLocs.splice(-1, 1, {
                             type: prev ?? current,
-                            line: prev ? getLastLoc().line : line
+                            line: lastLoc.line,
+                            count: lastLoc.count + (editedType === '<insert>' || lastType === '<insert>' ? 0 : 1)  // only +1 for inline label
                         });
                         hasMerged = true;
                     }
                 }
                 if (!hasMerged) {
-                    newLocs.push({ type: editedType, line });
+                    newLocs.push({ type: editedType, line, count: 1 });
                 }
                 couldMergeLast = true;
             }
@@ -622,9 +626,9 @@ export class QueryContext extends DisposableComponent {
             newLocCopy.inter_labels = Array(numLines + 1).fill('<null>');
 
             if (newLoc.type === '<replace>' || newLoc.type === '<delete>') {
-                newLocCopy.inline_labels[newLoc.line] = newLoc.type;
+                newLocCopy.inline_labels.splice(newLoc.line, newLoc.count, ...Array(newLoc.count).fill(newLoc.type));
             } else if (newLoc.type === '<insert>') {
-                newLocCopy.inter_labels[newLoc.line] = '<insert>';
+                newLocCopy.inter_labels.splice(newLoc.line, newLoc.count, ...Array(newLoc.count).fill(newLoc.type));
             }
 
             processedLocations.push(newLocCopy);
