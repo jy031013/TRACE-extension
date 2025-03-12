@@ -374,7 +374,7 @@ async function _predictEdit() {
         // });
 
         // limit number
-        const maxEdits = 3;
+        const maxEdits = 5;
         if (replacementStringsOfEntireBlock.length > maxEdits) {
             replacementStringsOfEntireBlock = replacementStringsOfEntireBlock.slice(0, maxEdits);
         }
