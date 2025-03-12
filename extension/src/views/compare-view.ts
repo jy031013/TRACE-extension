@@ -374,8 +374,8 @@ class EditSelector {
 
         const hasPrevious = i > 0;
         const hasNext = i < this.edits.length - 1;
-        vscode.commands.executeCommand('setContext', 'navEdit:hasPreviousSuggestion', hasPrevious);
-        vscode.commands.executeCommand('setContext', 'navEdit:hasNextSuggestion', hasNext);
+        vscode.commands.executeCommand('setContext', 'trace:hasPreviousSuggestion', hasPrevious);
+        vscode.commands.executeCommand('setContext', 'trace:hasNextSuggestion', hasNext);
     }
 }
 

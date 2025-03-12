@@ -9,7 +9,7 @@ from transformers import RobertaTokenizer
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 
 from .code_window import CodeWindow
-from navedit.logging import setup_default_logger
+from trace.logging import setup_default_logger
 
 logger = setup_default_logger(__name__)
 

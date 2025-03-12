@@ -9,6 +9,6 @@ out/
 /models/**
 /mock/
 !/models/MODEL.md
-/backend/navedit/tree-sitter/
+/backend/trace/tree-sitter/
 server.log*
 *.log
