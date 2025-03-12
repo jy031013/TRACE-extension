@@ -342,6 +342,7 @@ class EditSelector {
     async acceptEdit() {
         await this.clearRelatedLocation();
         await this.safeClose();
+        await vscode.workspace.save(vscode.Uri.file(this.path));
     }
 
     _getPathId() {
