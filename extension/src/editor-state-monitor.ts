@@ -740,28 +740,28 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
 
         // do each type of collection in parallel
 
-        (async () => {
-            const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeLocationInFile[];
-            if (def.length > 0) {
-                const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
+        // (async () => {
+        //     const def = await this.debounceDefQuery(uri, identifierRange.start) as CodeLocationInFile[];
+        //     if (def.length > 0) {
+        //         const fullDefRanges = await this.expandToFullDefinitionRanges(identifier, def);
 
-                const entry = {
-                    allDefs: fullDefRanges
-                } as DefInfo;
-                this.defInfoMap.addRecord(uriString, line, header, entry);
-            }
-        })();
+        //         const entry = {
+        //             allDefs: fullDefRanges
+        //         } as DefInfo;
+        //         this.defInfoMap.addRecord(uriString, line, header, entry);
+        //     }
+        // })();
         
         
-        (async () => {
-            const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeLocationInFile[];
-            if (ref.length > 0) {
-                const entry = {
-                    allRefs: ref
-                } as RefInfo;
-                this.refInfoMap.addRecord(uriString, line, header, entry);
-            }
-        })();
+        // (async () => {
+        //     const ref = await this.debounceRefQuery(uri, identifierRange.start) as CodeLocationInFile[];
+        //     if (ref.length > 0) {
+        //         const entry = {
+        //             allRefs: ref
+        //         } as RefInfo;
+        //         this.refInfoMap.addRecord(uriString, line, header, entry);
+        //     }
+        // })();
   
         (async () => {
             // Rename provider may throw an error from the promise
@@ -938,18 +938,18 @@ class EditReducer {
         // By default, there could only be zero or one "+" hunk following a "-" hunk
         
         // Prepare all the old edits on the path
-        const oldEditsWithIdx: { idx: number, edit: EditWithTimestamp }[] = [];
+        const oldEditsWithIdxOnFile: { idx: number, edit: EditWithTimestamp }[] = [];
         const oldEditIndicesOnFile = new Set();
         this.editList.forEach((edit, idx) => {
             if (edit.uriString === uriString) {
-                oldEditsWithIdx.push({
+                oldEditsWithIdxOnFile.push({
                     idx: idx,
                     edit: edit
                 });
                 oldEditIndicesOnFile.add(idx);
             }
         });
-        oldEditsWithIdx.sort((edit1, edit2) => edit1.edit.line - edit2.edit.line);	// sort in starting line order
+        oldEditsWithIdxOnFile.sort((edit1, edit2) => edit1.edit.line - edit2.edit.line);	// sort in starting line order
         
         // Maintain a new list about old edits that are kept
         const leftOldEditsOnFile = new Map();
@@ -1007,10 +1007,10 @@ class EditReducer {
 
             // skip to the first old edit that is probably involved
             while (
-                oldEditIdx < oldEditsWithIdx.length &&
-                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine < newEditFromLine
+                oldEditIdx < oldEditsWithIdxOnFile.length &&
+                oldEditsWithIdxOnFile[oldEditIdx].edit.line + oldEditsWithIdxOnFile[oldEditIdx].edit.rmLine < newEditFromLine
             ) {
-                leftOldEditsOnFile.set(oldEditsWithIdx[oldEditIdx].idx, oldEditsWithIdx[oldEditIdx].edit);
+                leftOldEditsOnFile.set(oldEditsWithIdxOnFile[oldEditIdx].idx, oldEditsWithIdxOnFile[oldEditIdx].edit);
                 ++oldEditIdx;
             }
     
@@ -1018,8 +1018,8 @@ class EditReducer {
             // replace all the overlapped/adjoined old edits with the new edit
             const fromIdx = oldEditIdx;
             while (
-                oldEditIdx < oldEditsWithIdx.length &&
-                oldEditsWithIdx[oldEditIdx].edit.line <= newEditToLine
+                oldEditIdx < oldEditsWithIdxOnFile.length &&
+                oldEditsWithIdxOnFile[oldEditIdx].edit.line <= newEditToLine
             ) {
                 ++oldEditIdx;
             }
@@ -1027,11 +1027,12 @@ class EditReducer {
             if (oldEditIdx > fromIdx) {
                 const minIdx = Math.max.apply(
                     null,
-                    oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
+                    oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
                 );
-                newEdit.timestamp = Math.min(
-                    ...oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
-                );
+                // Don't set it back to the earliest timestamp here, or the backend will has error taking the earliest edit
+                // newEdit.timestamp = Math.min(
+                //     ...oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
+                // );
                 leftOldEditsOnFile.set(minIdx, newEdit);
             } else {
                 newEdits.push(newEdit);
