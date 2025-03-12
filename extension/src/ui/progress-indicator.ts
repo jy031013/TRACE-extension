@@ -10,14 +10,14 @@ class ProgressDisplayStatusBarItem extends DisposableComponent {
     constructor() {
         super();
         this.loadingIconId = "loading~spin";
-        this.item = vscode.window.createStatusBarItem('navEdit.progressDisplay', vscode.StatusBarAlignment.Right, 1000);
+        this.item = vscode.window.createStatusBarItem('trace.progressDisplay', vscode.StatusBarAlignment.Right, 1000);
         this.setStatusDefault();
         this.item.show();
-        this.item.command = "navEdit.showCommands";
+        this.item.command = "trace.showCommands";
         this.busy = false;
 
         this.register(
-            vscode.commands.registerCommand("navEdit.showCommands", () => {
+            vscode.commands.registerCommand("trace.showCommands", () => {
                 // TODO showing a command context menu, to be implemented
             })
         );
@@ -34,32 +34,32 @@ class ProgressDisplayStatusBarItem extends DisposableComponent {
         if (globalEditorState.isActiveEditorLanguageSupported()) {
             iconId = "edit";
             this.item.backgroundColor = undefined;
-            this.item.tooltip = "NavEdit is ready";
+            this.item.tooltip = "TRACE is ready";
         } else {
             iconId = "circle-slash";
             this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-            this.item.tooltip = "NavEdit doesn't support this language yet";
+            this.item.tooltip = "TRACE doesn't support this language yet";
         }
-        this.setItemText(iconId, "NavEdit");
+        this.setItemText(iconId, "TRACE");
     } 
 
     setStatusLoadingFiles() {
         this.busy = true;
         this.setItemText(this.loadingIconId, "Loading files...");
         this.item.backgroundColor = undefined;
-        this.item.tooltip = "NavEdit is working on local files 🔍";
+        this.item.tooltip = "TRACE is working on local files 🔍";
     }
 
     setStatusQuerying(modelName: string) {
         this.busy = true;
         this.setItemText(this.loadingIconId, `Querying ${modelName}...`);
         this.item.backgroundColor = undefined;
-        this.item.tooltip = "NavEdit is using language model to analyze 🔬";
+        this.item.tooltip = "TRACE is using language model to analyze 🔬";
     }
 
     setStatusProblem(errorMessage: string) {
         this.busy = true;
-        this.setItemText("close", "NavEdit");
+        this.setItemText("close", "TRACE");
         this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         this.item.tooltip = errorMessage;
     }

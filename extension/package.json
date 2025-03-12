@@ -23,14 +23,14 @@
   "contributes": {
     "configuration": [
       {
-        "title": "NavEdit",
+        "title": "TRACE",
         "properties": {
-          "navEdit.queryURL": {
+          "trace.queryURL": {
             "type": "string",
             "default": "http://localhost:5003",
             "description": "The backend URL to send query request to."
           },
-          "navEdit.predictLocationOnEditAccept": {
+          "trace.predictLocationOnEditAccept": {
             "type": "boolean",
             "default": "true",
             "description": "Perform another prediction immediately when accepting an edit."
@@ -40,127 +40,127 @@
     ],
     "commands": [
       {
-        "command": "navEdit.inputMessage",
-        "category": "NavEdit",
+        "command": "trace.inputMessage",
+        "category": "TRACE",
         "title": "Change Edit Description",
         "icon": "$(comment)"
       },
       {
         "title": "Last Suggestion",
-        "category": "NavEdit",
-        "command": "navEdit.lastSuggestion",
+        "category": "TRACE",
+        "command": "trace.lastSuggestion",
         "icon": "$(arrow-left)",
-        "enablement": "navEdit:hasPreviousSuggestion"
+        "enablement": "trace:hasPreviousSuggestion"
       },
       {
         "title": "Next Suggestion",
-        "category": "NavEdit",
-        "command": "navEdit.nextSuggestion",
+        "category": "TRACE",
+        "command": "trace.nextSuggestion",
         "icon": "$(arrow-right)",
-        "enablement": "navEdit:hasNextSuggestion"
+        "enablement": "trace:hasNextSuggestion"
       },
       {
         "title": "Accept",
-        "category": "NavEdit",
-        "command": "navEdit.acceptEdit",
+        "category": "TRACE",
+        "command": "trace.acceptEdit",
         "icon": "$(pass)"
       },
       {
         "title": "Dismiss",
-        "category": "NavEdit",
-        "command": "navEdit.dismissEdit",
+        "category": "TRACE",
+        "command": "trace.dismissEdit",
         "icon": "$(trash)"
       },
       {
         "title": "Predict Locations",
-        "category": "NavEdit",
-        "command": "navEdit.predictLocations",
+        "category": "TRACE",
+        "command": "trace.predictLocations",
         "icon": "$(list-tree)"
       },
       {
         "title": "Generate Edits",
-        "category": "NavEdit",
-        "command": "navEdit.generateEdits",
+        "category": "TRACE",
+        "command": "trace.generateEdits",
         "icon": "$(edit)"
       },
       {
         "title": "Show Commands",
-        "command": "navEdit.showCommands"
+        "command": "trace.showCommands"
       },
       {
         "title": "Clear Locations",
-        "command": "navEdit.clearLocations",
+        "command": "trace.clearLocations",
         "icon": "$(close)"
       },
       {
         "title": "Clear Edit Memory",
-        "command": "navEdit.clearPrevEdits",
+        "command": "trace.clearPrevEdits",
         "icon": "$(history)"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "navEdit.inputMessage",
-          "group": "0_navEdit@3",
+          "command": "trace.inputMessage",
+          "group": "0_trace@3",
           "when": "editorFocus"
         },
         {
-          "command": "navEdit.predictLocations",
-          "group": "0_navEdit@1",
+          "command": "trace.predictLocations",
+          "group": "0_trace@1",
           "when": "editorFocus"
         },
         {
-          "command": "navEdit.generateEdits",
-          "group": "0_navEdit@2",
-          "when": "editorFocus && navEdit:isLanguageSupported"
+          "command": "trace.generateEdits",
+          "group": "0_trace@2",
+          "when": "editorFocus && trace:isLanguageSupported"
         }
       ],
       "editor/title": [
         {
-          "command": "navEdit.lastSuggestion",
+          "command": "trace.lastSuggestion",
           "group": "navigation@-4",
-          "when": "navEdit:isEditDiff"
+          "when": "trace:isEditDiff"
         },
         {
-          "command": "navEdit.nextSuggestion",
+          "command": "trace.nextSuggestion",
           "group": "navigation@-3",
-          "when": "navEdit:isEditDiff"
+          "when": "trace:isEditDiff"
         },
         {
-          "command": "navEdit.acceptEdit",
+          "command": "trace.acceptEdit",
           "group": "navigation@-2",
-          "when": "navEdit:isEditDiff"
+          "when": "trace:isEditDiff"
         },
         {
-          "command": "navEdit.dismissEdit",
+          "command": "trace.dismissEdit",
           "group": "navigation@-1",
-          "when": "navEdit:isEditDiff"
+          "when": "trace:isEditDiff"
         },
         {
-          "command": "navEdit.predictLocations",
+          "command": "trace.predictLocations",
           "group": "navigation@-99",
-          "when": "editorFocus && (!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+          "when": "editorFocus && (!(trace:isEditDiff)) && trace:isLanguageSupported"
         },
         {
-          "command": "navEdit.generateEdits",
+          "command": "trace.generateEdits",
           "group": "navigation@-98",
-          "when": "editorFocus && (!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+          "when": "editorFocus && (!(trace:isEditDiff)) && trace:isLanguageSupported"
         },
         {
-          "command": "navEdit.inputMessage",
+          "command": "trace.inputMessage",
           "group": "navigation@-97",
-          "when": "(!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+          "when": "(!(trace:isEditDiff)) && trace:isLanguageSupported"
         },
         {
-          "command": "navEdit.clearPrevEdits",
+          "command": "trace.clearPrevEdits",
           "group": "navigation@-96",
-          "when": "(!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+          "when": "(!(trace:isEditDiff)) && trace:isLanguageSupported"
         }
       ],
       "view/title": [
         {
-          "command": "navEdit.clearLocations",
+          "command": "trace.clearLocations",
           "when": "view == editLocations",
           "group": "navigation"
         }
@@ -169,14 +169,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "navEdit",
-          "title": "NavEdit",
+          "id": "trace",
+          "title": "TRACE",
           "icon": "$(edit)"
         }
       ]
     },
     "views": {
-      "navEdit": [
+      "trace": [
         {
           "id": "editLocations",
           "name": "Suggested Edit Locations"
@@ -189,12 +189,12 @@
     },
     "keybindings": [
       {
-        "command": "navEdit.predictLocations",
+        "command": "trace.predictLocations",
         "key": "ctrl+alt+l",
         "mac": "cmd+alt+l"
       },
       {
-        "command": "navEdit.generateEdits",
+        "command": "trace.generateEdits",
         "key": "ctrl+alt+e",
         "mac": "cmd+alt+e",
         "when": "editorFocus"

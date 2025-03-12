@@ -143,4 +143,4 @@ export class LocationResultDecoration {
 }
 
 // TODO use different color for each line with different label
-export class NavEditLocationResultDecoration {}
+export class TRACELocationResultDecoration {}

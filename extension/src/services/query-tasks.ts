@@ -2,7 +2,7 @@ import vscode from 'vscode';
 import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant, readMostRelatedFiles } from '../utils/file-utils';
 import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
-import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByNavEdit, requestNavEditLocator } from './query-processes';
+import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByTRACE, requestTRACELocator } from './query-processes';
 import { DisposableComponent } from '../utils/base-component';
 import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view';
 import { statusBarItem } from '../ui/progress-indicator';
@@ -43,7 +43,7 @@ async function predictLocation() {
     });
 }
 
-async function predictLocationByNavEdit() {
+async function predictLocationByTRACE() {
     // if (!globalEditorState.isActiveEditorLanguageSupported()) {
     //     vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
     //     return;
@@ -89,7 +89,7 @@ async function predictLocationByNavEdit() {
             statusBarItem.setStatusQuerying("locator");
             // TODO depart this step, because it is not parallel to other steps
             
-            const invokerResult = await requestInvokerAndLocationByNavEdit(
+            const invokerResult = await requestInvokerAndLocationByTRACE(
                 filesAtPath,
                 requestEdits,
                 commitMessage,
@@ -103,7 +103,7 @@ async function predictLocationByNavEdit() {
                     if (invokerResult[0] === 'rename') {
                         globalQueryContext.updateRefactor(invokerResult[1]);
                     } else if (invokerResult[0] === 'location') {
-                        globalQueryContext.updateNavEditLocations(invokerResult[1]);
+                        globalQueryContext.updateTRACELocations(invokerResult[1]);
                     } else if (invokerResult[0] === 'def&ref') {
                         const symbolInfo = invokerResult[1];
 
@@ -121,7 +121,7 @@ async function predictLocationByNavEdit() {
                         });
 
                         const locatorResult = focusedLspFoundLocation.length > 0
-                            ? await requestNavEditLocator(
+                            ? await requestTRACELocator(
                                 filesAtPath,
                                 requestEdits,
                                 commitMessage,
@@ -130,7 +130,7 @@ async function predictLocationByNavEdit() {
                                 focusedLspFoundLocation,
                                 cachedRenameOperation
                             )
-                            : await requestNavEditLocator(
+                            : await requestTRACELocator(
                                 filesAtPath,
                                 requestEdits,
                                 commitMessage,
@@ -141,11 +141,11 @@ async function predictLocationByNavEdit() {
                             );
 
                         if (locatorResult) {
-                            globalQueryContext.updateNavEditLocations(locatorResult.files);
+                            globalQueryContext.updateTRACELocations(locatorResult.files);
                         }
                     }
                 } else {
-                    const locatorResult = await requestNavEditLocator(
+                    const locatorResult = await requestTRACELocator(
                         filesAtPath,
                         requestEdits,
                         commitMessage,
@@ -156,7 +156,7 @@ async function predictLocationByNavEdit() {
                     );
 
                     if (locatorResult) {
-                        globalQueryContext.updateNavEditLocations(locatorResult.files);
+                        globalQueryContext.updateTRACELocations(locatorResult.files);
                     }
                 }
             }
@@ -243,11 +243,11 @@ async function predictEdit() {
         const fileContent = await getStagedFile(openedPaths, toDriveLetterLowerCasePath(uri.fsPath));
         const fileLines = splitLines(fileContent, true);
 
-        const selectedNavEditResult = globalQueryContext.activeNavEditLocationResult;
-        if (selectedNavEditResult) {
+        const selectedTRACEResult = globalQueryContext.activeTRACELocationResult;
+        if (selectedTRACEResult) {
             editType = 'replace';
 
-            const locationsInFile = selectedNavEditResult.getLocations().get(uri.toString());
+            const locationsInFile = selectedTRACEResult.getLocations().get(uri.toString());
             const coveredInLocation = locationsInFile?.find((location) => {
                 const startLine = location.code_window_start_line;
                 const endLine = location.code_window_start_line + location.inline_labels.length;
@@ -389,8 +389,8 @@ class PredictLocationCommand extends DisposableComponent {
 	constructor() {
 		super();
 		this.register(
-            vscode.commands.registerCommand("navEdit.predictLocations", predictLocationByNavEdit),
-            vscode.commands.registerCommand("navEdit.clearLocations", async () => {
+            vscode.commands.registerCommand("trace.predictLocations", predictLocationByTRACE),
+            vscode.commands.registerCommand("trace.clearLocations", async () => {
                 globalQueryContext.clearResults();
             })
 		);
@@ -402,7 +402,7 @@ class GenerateEditCommand extends DisposableComponent {
 		super();
         this.register(
             this.registerEditSelectionCommands(),
-            vscode.commands.registerCommand("navEdit.generateEdits", predictEdit)
+            vscode.commands.registerCommand("trace.generateEdits", predictEdit)
 		);
     }
     
@@ -442,18 +442,18 @@ class GenerateEditCommand extends DisposableComponent {
             }
         }
         return vscode.Disposable.from(
-            vscode.commands.registerCommand("navEdit.lastSuggestion", async () => {
+            vscode.commands.registerCommand("trace.lastSuggestion", async () => {
                 await switchEdit(-1);
             }),
-            vscode.commands.registerCommand("navEdit.nextSuggestion", async () => {
+            vscode.commands.registerCommand("trace.nextSuggestion", async () => {
                 await switchEdit(1);
             }),
-            vscode.commands.registerCommand("navEdit.acceptEdit", async () => {
+            vscode.commands.registerCommand("trace.acceptEdit", async () => {
                 globalEditorState.toPredictLocation = true;
                 await acceptEdit();
                 // await closeTab();
             }),
-            vscode.commands.registerCommand("navEdit.dismissEdit", async () => {
+            vscode.commands.registerCommand("trace.dismissEdit", async () => {
                 await clearEdit();
                 // await closeTab();
             })

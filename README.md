@@ -1,6 +1,6 @@
-# ✍️ NavEdit
+# ✍️ TRACE
 
-NavEdit is a Visual Studio Code extension that features automatic code edit recommendations.
+TRACE is a Visual Studio Code extension that features automatic code edit recommendations.
 
 ## 🚀 Demo (TODO)
 

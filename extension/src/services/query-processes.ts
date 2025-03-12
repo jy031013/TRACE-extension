@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToNavEditInvoker, postRequestToNavEditLocator, RequestNavEditInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseNavEditLocator, ResponseNavEditInvoker, ResponseNavEditDefRefInfo } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToTRACEInvoker, postRequestToTRACELocator, RequestTRACEInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseTRACELocator, ResponseTRACEInvoker, ResponseTRACEDefRefInfo } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
@@ -359,7 +359,7 @@ export interface CachedRenameOperation {
  * @param language The language identifier based on VS Code of the current file.
  * @returns An array, containing suggested locations with their extra info.
  */
-async function requestInvokerAndLocationByNavEdit(
+async function requestInvokerAndLocationByTRACE(
     files: { [key: string]: string[] },
     prevEdits: RequestEdit[],
     commitMessage: string, 
@@ -367,9 +367,9 @@ async function requestInvokerAndLocationByNavEdit(
     lspServiceName: PreJudgedLspType,
     lspFoundLocations: RequestLspFoundLocation[],
     cachedRenameOperation: CachedRenameOperation | undefined
-): Promise<ResponseNavEditInvoker | ['rename', Refactor] | ['def&ref', ResponseNavEditDefRefInfo] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
+): Promise<ResponseTRACEInvoker | ['rename', Refactor] | ['def&ref', ResponseTRACEDefRefInfo] | ['location', { [key: string]: ResponseEditLocationWithLabels[] }] | undefined> {
 
-    const invokerInput: RequestNavEditInvoker = {
+    const invokerInput: RequestTRACEInvoker = {
         language: language,
         commitMsg: commitMessage,
         prevEdits: prevEdits,
@@ -380,7 +380,7 @@ async function requestInvokerAndLocationByNavEdit(
     statusBarItem.setStatusQuerying("locator");
     
     const invokerOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
-        return await postRequestToNavEditInvoker(invokerInput);
+        return await postRequestToTRACEInvoker(invokerInput);
     });
 
     if (!invokerOutput) return undefined;
@@ -408,7 +408,7 @@ async function requestInvokerAndLocationByNavEdit(
                 console.trace('no cached rename operation found, nothing is done');
             }
         } else if (invokerOutput.type === 'def&ref') {
-            return ['def&ref', invokerOutput.info as ResponseNavEditDefRefInfo];
+            return ['def&ref', invokerOutput.info as ResponseTRACEDefRefInfo];
         }
     } else if ('files' in invokerOutput) {
         return ['location', invokerOutput.files]; 
@@ -417,7 +417,7 @@ async function requestInvokerAndLocationByNavEdit(
     }
 }
 
-export async function requestNavEditLocator(
+export async function requestTRACELocator(
     files: { [key: string]: string[] },
     prevEdits: RequestEdit[],
     commitMessage: string,
@@ -425,9 +425,9 @@ export async function requestNavEditLocator(
     lspServiceName: PreJudgedLspType,
     lspFoundLocations: RequestLspFoundLocation[],
     cachedRenameOperation: CachedRenameOperation | undefined
-): Promise<ResponseNavEditLocator | undefined> {
+): Promise<ResponseTRACELocator | undefined> {
 
-    const locatorInput: RequestNavEditInvoker = {
+    const locatorInput: RequestTRACEInvoker = {
         language: language,
         commitMsg: commitMessage,
         prevEdits: prevEdits,
@@ -438,7 +438,7 @@ export async function requestNavEditLocator(
     statusBarItem.setStatusQuerying("locator");
 
     const locatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
-        return await postRequestToNavEditLocator(locatorInput);
+        return await postRequestToTRACELocator(locatorInput);
     });
 
     return locatorOutput;
@@ -480,5 +480,5 @@ async function requestEdit(
 export {
     requestAndUpdateLocation,
     requestEdit,
-    requestInvokerAndLocationByNavEdit
+    requestInvokerAndLocationByTRACE
 };

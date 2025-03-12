@@ -8,7 +8,7 @@ import pandas as pd
 pd.set_option('display.float_format', '{:.4f}'.format)
 
 from .rich_semantic import finer_grain_window
-from navedit.logging import setup_default_logger
+from trace.logging import setup_default_logger
 
 logger = setup_default_logger(__name__)
 

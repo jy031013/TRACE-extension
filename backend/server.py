@@ -6,8 +6,8 @@ import configparser
 from waitress import serve
 from flask import Flask, config, request, make_response
 
-from navedit.mol_service import invoker_interface, locator_interface, generator_interface
-from navedit.logging import setup_default_logger
+from trace.mol_service import invoker_interface, locator_interface, generator_interface
+from trace.logging import setup_default_logger
 
 app = Flask(__name__)
 
@@ -49,14 +49,14 @@ def run_predict(predict_name, predict_func):
 def run_content():
     return run_predict('generator', generator_interface)
 
-@app.route('/navedit/invoker', methods=['POST'])
-def post_navedit_invoker():
-    return run_predict('navedit-invoker', invoker_interface)
+@app.route('/trace/invoker', methods=['POST'])
+def post_trace_invoker():
+    return run_predict('trace-invoker', invoker_interface)
 
 # TODO add file-by-file transfer when scanning the whole project
-@app.route('/navedit/locator', methods=['POST'])
-def post_navedit_locator():
-    return run_predict('navedit-locator', locator_interface)
+@app.route('/trace/locator', methods=['POST'])
+def post_trace_locator():
+    return run_predict('trace-locator', locator_interface)
 
 if __name__ == '__main__':
     # app.run(host='0.0.0.0', port=5001, debug=True)
