@@ -1258,14 +1258,14 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
             && input.modified.scheme === 'file') || (input.textDiffs ? true : false);
     }
 
-    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation) {
+    if (vscode.workspace.getConfiguration("trace").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation) {
         setTimeout(() => {
-            vscode.commands.executeCommand("navEdit.predictLocations");
+            vscode.commands.executeCommand("trace.predictLocations");
             globalEditorState.toPredictLocation = false;
         }, 600);
     }
-    vscode.commands.executeCommand('setContext', 'navEdit:isEditDiff', isEditDiff);
-    vscode.commands.executeCommand('setContext', 'navEdit:isLanguageSupported', globalEditorState.isActiveEditorLanguageSupported());
+    vscode.commands.executeCommand('setContext', 'trace:isEditDiff', isEditDiff);
+    vscode.commands.executeCommand('setContext', 'trace:isLanguageSupported', globalEditorState.isActiveEditorLanguageSupported());
 }
 
 export class FileStateMonitor extends DisposableComponent {

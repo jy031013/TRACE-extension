@@ -40,8 +40,8 @@ type GeneralRequestForInvokerAndLocator = {
     lspFoundLocations: RequestLspFoundLocation[];
 }
 
-export type RequestNavEditInvoker = GeneralRequestForInvokerAndLocator;
-export type RequestNavEditLocator = GeneralRequestForInvokerAndLocator;
+export type RequestTRACEInvoker = GeneralRequestForInvokerAndLocator;
+export type RequestTRACELocator = GeneralRequestForInvokerAndLocator;
 
 export type RequestGenerator = {
     language: string;
@@ -56,7 +56,7 @@ export type RequestGenerator = {
     lspServiceName: PreJudgedLspType;
 };
 
-export type ResponseNavEditDefRefInfo = {
+export type ResponseTRACEDefRefInfo = {
     type: 'def' | 'ref',
     name: string;
     name_range_start: [number, number];
@@ -67,12 +67,12 @@ export type ResponseNavEditDefRefInfo = {
     after_args_num?: number;
 }
 
-export type ResponseNavEditInvoker = {
+export type ResponseTRACEInvoker = {
     type: ResponseInvokerLspType;
     info: object;
-} | ResponseNavEditLocator;
+} | ResponseTRACELocator;
 
-export type ResponseNavEditLocator = {
+export type ResponseTRACELocator = {
     files: {
         [key: string]: ResponseEditLocationWithLabels[];
     }
@@ -92,12 +92,12 @@ async function postRequestToLocator(json_obj: any) {
     return await basicQuery("range", json_obj);
 }
 
-async function postRequestToNavEditInvoker(data: RequestNavEditInvoker): Promise<ResponseNavEditInvoker | undefined> {
-    return await basicQuery("navedit/invoker", data);
+async function postRequestToTRACEInvoker(data: RequestTRACEInvoker): Promise<ResponseTRACEInvoker | undefined> {
+    return await basicQuery("trace/invoker", data);
 }
 
-async function postRequestToNavEditLocator(data: RequestNavEditLocator): Promise<ResponseNavEditLocator | undefined> {
-    return await basicQuery("navedit/locator", data);
+async function postRequestToTRACELocator(data: RequestTRACELocator): Promise<ResponseTRACELocator | undefined> {
+    return await basicQuery("trace/locator", data);
 }
 
 async function postRequestToGenerator(data: RequestGenerator): Promise<ResponseGenerator | undefined> {
@@ -108,8 +108,8 @@ export {
     postRequestToDiscriminator,
     postRequestToLocator,
     postRequestToGenerator,
-    postRequestToNavEditInvoker,
-    postRequestToNavEditLocator
+    postRequestToTRACEInvoker,
+    postRequestToTRACELocator
 };
 
 class ModelServerProcess extends DisposableComponent {
@@ -133,7 +133,7 @@ class ModelServerProcess extends DisposableComponent {
 
         this.register(
             vscode.workspace.onDidChangeConfiguration((e) => {
-                if (e.affectsConfiguration("navEdit.queryURL")) {
+                if (e.affectsConfiguration("trace.queryURL")) {
                     this.apiUrl = this.getApiUrl();
                 }
             })
@@ -141,7 +141,7 @@ class ModelServerProcess extends DisposableComponent {
     }
 
     getApiUrl() {
-        const apiUrlConfigValue = vscode.workspace.getConfiguration("navEdit").get("queryURL");
+        const apiUrlConfigValue = vscode.workspace.getConfiguration("trace").get("queryURL");
         const apiUrl = typeof(apiUrlConfigValue) === 'string' ? apiUrlConfigValue : "http://localhost:5000";
         return apiUrl;
     }
