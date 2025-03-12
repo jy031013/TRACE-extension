@@ -52,13 +52,13 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
     
     """
 
-    # Check some assertions
+    # Assert that inline labels are continuous
     to_edit_lines = []
     for i, label in enumerate(inline_labels):
         if label != "<keep>":
             to_edit_lines.append(i)
     
-    assert to_edit_lines == list(range(min(to_edit_lines), max(to_edit_lines)+1))
+    assert len(to_edit_lines) == 0 or to_edit_lines == list(range(min(to_edit_lines), max(to_edit_lines)+1))
 
     if to_edit_lines != []:
         for idx, inter_label in enumerate(inter_labels):
@@ -109,18 +109,14 @@ def generate_edit(generator, generator_tokenizer, device, code_window, inline_la
             preds = preds.cpu().numpy()
             for pred in preds[0]: # batch_size=1
                 replacements.append(generator_tokenizer.decode(pred, skip_special_tokens=True,clean_up_tokenization_spaces=False))
-
-        
+ 
     logged_output = '\n'.join([f"Idx {i}: \n{r}" for i, r in enumerate(replacements)])
     logger.debug(f'>>> [Generator] has predicted replacements:\nInput:\n{input_string}\nOutput:\n{logged_output}')
-    
-    # discard score
-    replacements = [r[0] for r in replacements]
     
     if "<replace>" not in inline_labels and "<delete>" not in inline_labels and "<insert>" in inter_labels:
         assert inter_labels.count("<insert>") == 1
         prefix = "".join(code_window[:inter_labels.index("<insert>")])
-        suffix = "".join(code_window[inter_labels.index("<insert>")+1:])
+        suffix = "".join(code_window[inter_labels.index("<insert>"):])
         replacements = [prefix + replacement + suffix for replacement in replacements]
 
     else:

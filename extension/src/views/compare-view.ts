@@ -205,11 +205,15 @@ class EditSelector {
     async _performMod(replacement: string) {
         const x = this.originalContent.match(/\r?\n|\n/);
         const lineBreak = x?.at(0) ?? defaultLineBreak;
-        const lines = this.originalContent.split(lineBreak);
-        const numLines = lines.length + 1;
+        
+        const _lines = this.originalContent.split(lineBreak);
+        const isAdd = this.isAdd || _lines.some(line => line.startsWith('<add>'));
+        const lines = _lines.map(line => line.replace(/^<add>/, ''));
+        
+        const numLines = _lines.length + 1;
         const fromLine = Math.max(0, this.fromLine);
         // If change type is "add", simply insert replacement content at the first line 
-        const toLine = this.isAdd ? fromLine : Math.min(this.toLine, numLines);
+        const toLine = isAdd ? fromLine : Math.min(this.toLine, numLines);
         
         const modifiedText = (lines.slice(0, fromLine)).join(lineBreak)
             + (fromLine > 0 ? lineBreak : '')
@@ -237,8 +241,15 @@ class EditSelector {
 
         if (useOpenedDocument) {
             // if (vscode.window.activeTextEditor?.document.uri.toString() === vscode.Uri.file(this.path).toString()) {
-            const openedDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(this.path));
-            if (vscode.window.activeTextEditor?.document === openedDocument) {
+            
+            // const openedDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(this.path));
+
+            // https://stackoverflow.com/questions/71990370/vscode-api-editor-edit-editbuilder-replace-fails-without-reason-possibly-due-t
+            // If we must use the "switched to original" document, try after small delay, strange failure on Windows
+            // (vscode edit document api is so awkward and inconsistent..)
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            if (vscode.window.activeTextEditor?.document?.uri.toString() === vscode.Uri.file(this.path).toString()) {
                 editor = vscode.window.activeTextEditor;
             }
         } else {

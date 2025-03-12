@@ -104,6 +104,51 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
         return this.editWatcher.collectEditsWithMatchedSyntaxInfo(true, lastOnly);
     }
 
+    async exportLspFoundLocationsForSymbolRange(symbolLspQuery: {
+        type: 'def' | 'ref',
+        fileUri: vscode.Uri,
+        symbolName: string,
+        symbolRange: vscode.Range
+    }): Promise<RequestLspFoundLocation[]> {
+        const lspFoundLocations: RequestLspFoundLocation[] = [];
+
+        // const commandIdDefOrRef = symbolLspQuery.type === 'def' ? 'vscode.executeDefinitionProvider' : 'vscode.executeReferenceProvider';
+        // const allLspResults = await vscode.commands.executeCommand<vscode.Location[]>(
+        //     commandIdDefOrRef,
+        //     symbolLspQuery.fileUri,
+        //     symbolLspQuery.symbolRange.end
+        // );
+
+        for (const queryType of ['def', 'ref']) {
+            const queryCommand = queryType === 'def' ? 'vscode.executeDefinitionProvider' : 'vscode.executeReferenceProvider';
+
+            const lspResults = await vscode.commands.executeCommand<vscode.Location[]>(
+                queryCommand,
+                symbolLspQuery.fileUri,
+                symbolLspQuery.symbolRange.end
+            );
+            if (!lspResults) continue;
+
+            for (const lspResult of lspResults) {
+                const foundLocation: RequestLspFoundLocation = {
+                    file_path: lspResult.uri.fsPath,
+                    start: {
+                        line: lspResult.range.start.line,
+                        col: lspResult.range.start.character
+                    },
+                    end: {
+                        line: lspResult.range.end.line,
+                        col: lspResult.range.end.character
+                    },
+                    type: queryType
+                };
+                lspFoundLocations.push(foundLocation);
+            }
+        }
+
+        return lspFoundLocations;
+    }
+
     async exportLspFoundLocationsForEdit(editWithSyntaxInfo: EditWithSyntaxInfo): Promise<CategorizedLspFoundLocations> {
         const lspFoundLocations: CategorizedLspFoundLocations = {
             def: [],
@@ -750,6 +795,7 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
             const rootInfoArray = await this.fetchDocumentSymbolInfo(location.uri);
             const matchedInfo = this.findRecursivelyMatchedDocumentSymbolInfo(rootInfoArray, identifier, location.range);
             if (matchedInfo) {
+                // NOTE only the first line is extracted from definition
                 const firstLineRangeInfo = new vscode.Range(
                     new vscode.Position(matchedInfo.range.start.line, 0),
                     new vscode.Position(matchedInfo.range.start.line, Number.MAX_SAFE_INTEGER)
@@ -935,8 +981,8 @@ class EditReducer {
             };
 
             // Validation
-            // if (newEdit.addLine != newEdit.addText.length || newEdit.rmLine != newEdit.rmText.length) {
-            //     console.error("Error encountered at constructing edit.")
+            // if (newEdit.addLine !== newEdit.addText.length || newEdit.rmLine !== newEdit.rmText.length) {
+            //     console.error("Error encountered at constructing edit.");
             // }
                 
             // Find context
@@ -954,15 +1000,16 @@ class EditReducer {
         }
 
         function pushOldEditMerge(newEdit: EditWithTimestamp) {
+            const newEditFromLine = newEdit.line;
             const newEditToLine = newEdit.line + newEdit.rmLine;
 
             // skip to the first old edit that is probably involved
             while (
                 oldEditIdx < oldEditsWithIdx.length &&
-                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine < newEditToLine
+                oldEditsWithIdx[oldEditIdx].edit.line + oldEditsWithIdx[oldEditIdx].edit.rmLine <= newEditFromLine
             ) {
-                ++oldEditIdx;
                 oldAdjustedEditsWithIdx.set(oldEditsWithIdx[oldEditIdx].idx, oldEditsWithIdx[oldEditIdx].edit);
+                ++oldEditIdx;
             }
     
             // if the first involved old edit is overlapped/adjoined with this diff
@@ -980,6 +1027,9 @@ class EditReducer {
                     null,
                     oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
                 );
+                newEdit.timestamp = Math.min(
+                    ...oldEditsWithIdx.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
+                );
                 oldAdjustedEditsWithIdx.set(minIdx, newEdit);
             } else {
                 newEdits.push(newEdit);
@@ -994,6 +1044,10 @@ class EditReducer {
                 // unite the following "+" (added) diff
                 if (i + 1 < newDiffs.length && newDiffs[i + 1].added) {
                     edit = createEdit(diff, newDiffs[i + 1]);
+                    if (!(newDiffs[i + 1].removed)) {
+                        lastLine += newDiffs[i + 1].count ?? 0;
+                    }
+                    
                     ++i;
                 } else {
                     edit = createEdit(diff, undefined);
@@ -1095,7 +1149,7 @@ class EditReducer {
     }
 
     async getEditList() {
-        return this.editList;
+        return this.editList.sort((edit1, edit2) => edit1.timestamp - edit2.timestamp);
     }
 
     // Obsolete: old style edit fetcher
@@ -1204,9 +1258,11 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
             && input.modified.scheme === 'file') || (input.textDiffs ? true : false);
     }
 
-    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation && !(globalQueryContext.getLocations()?.length)) {
-        vscode.commands.executeCommand("navEdit.predictLocations");
-        globalEditorState.toPredictLocation = false;
+    if (vscode.workspace.getConfiguration("navEdit").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation) {
+        setTimeout(() => {
+            vscode.commands.executeCommand("navEdit.predictLocations");
+            globalEditorState.toPredictLocation = false;
+        }, 600);
     }
     vscode.commands.executeCommand('setContext', 'navEdit:isEditDiff', isEditDiff);
     vscode.commands.executeCommand('setContext', 'navEdit:isLanguageSupported', globalEditorState.isActiveEditorLanguageSupported());

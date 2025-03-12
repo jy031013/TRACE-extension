@@ -56,6 +56,17 @@ export type RequestGenerator = {
     lspServiceName: PreJudgedLspType;
 };
 
+export type ResponseNavEditDefRefInfo = {
+    type: 'def' | 'ref',
+    name: string;
+    name_range_start: [number, number];
+    name_range_end: [number, number];
+    before_args?: string[];
+    after_args?: string[];
+    before_args_num?: number;
+    after_args_num?: number;
+}
+
 export type ResponseNavEditInvoker = {
     type: ResponseInvokerLspType;
     info: object;

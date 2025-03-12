@@ -136,6 +136,16 @@
           "when": "navEdit:isEditDiff"
         },
         {
+          "command": "navEdit.predictLocations",
+          "group": "navigation@-99",
+          "when": "editorFocus && (!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+        },
+        {
+          "command": "navEdit.generateEdits",
+          "group": "navigation@-98",
+          "when": "editorFocus && (!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"
+        },
+        {
           "command": "navEdit.inputMessage",
           "group": "navigation@-97",
           "when": "(!(navEdit:isEditDiff)) && navEdit:isLanguageSupported"

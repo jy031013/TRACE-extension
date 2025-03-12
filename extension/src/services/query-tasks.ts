@@ -16,10 +16,10 @@ import path from 'path';
  * @deprecated This function is obsolete. Fetching previous edits in the new way is not implemented yet;
  */
 async function predictLocation() {
-    if (!globalEditorState.isActiveEditorLanguageSupported()) {
-        vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
-        return;
-    }
+    // if (!globalEditorState.isActiveEditorLanguageSupported()) {
+    //     vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
+    //     return;
+    // }
     return await globalEditLock.tryWithLock(async () => {
         const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
         if (commitMessage === undefined) return;
@@ -44,10 +44,10 @@ async function predictLocation() {
 }
 
 async function predictLocationByNavEdit() {
-    if (!globalEditorState.isActiveEditorLanguageSupported()) {
-        vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
-        return;
-    }
+    // if (!globalEditorState.isActiveEditorLanguageSupported()) {
+    //     vscode.window.showInformationMessage(`Predicting location canceled: language ${globalEditorState.language} not supported yet.`);
+    //     return;
+    // }
     return await globalEditLock.tryWithLock(async () => {
         const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
         if (commitMessage === undefined) return;
@@ -104,6 +104,45 @@ async function predictLocationByNavEdit() {
                         globalQueryContext.updateRefactor(invokerResult[1]);
                     } else if (invokerResult[0] === 'location') {
                         globalQueryContext.updateNavEditLocations(invokerResult[1]);
+                    } else if (invokerResult[0] === 'def&ref') {
+                        const symbolInfo = invokerResult[1];
+
+                        const correspondingInfoType = symbolInfo.type === 'def' ? 'ref' : 'def';
+
+                        const lastEdit = requestEdits[requestEdits.length - 1];
+                        const focusedLspFoundLocation = await globalEditInfoCollector.exportLspFoundLocationsForSymbolRange({
+                            type: correspondingInfoType,
+                            fileUri: vscode.Uri.file(requestEdits[requestEdits.length - 1].path),
+                            symbolName: symbolInfo.name,
+                            symbolRange: new vscode.Range(
+                                new vscode.Position(symbolInfo.name_range_start[0] + lastEdit.line, symbolInfo.name_range_start[1]),
+                                new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
+                            )
+                        });
+
+                        const locatorResult = focusedLspFoundLocation.length > 0
+                            ? await requestNavEditLocator(
+                                filesAtPath,
+                                requestEdits,
+                                commitMessage,
+                                globalEditorState.language,
+                                'def&ref',
+                                focusedLspFoundLocation,
+                                cachedRenameOperation
+                            )
+                            : await requestNavEditLocator(
+                                filesAtPath,
+                                requestEdits,
+                                commitMessage,
+                                globalEditorState.language,
+                                'normal',
+                                fullLspFoundLocations,
+                                cachedRenameOperation
+                            );
+
+                        if (locatorResult) {
+                            globalQueryContext.updateNavEditLocations(locatorResult.files);
+                        }
                     }
                 } else {
                     const locatorResult = await requestNavEditLocator(
@@ -111,7 +150,7 @@ async function predictLocationByNavEdit() {
                         requestEdits,
                         commitMessage,
                         globalEditorState.language,
-                        lspType,
+                        'normal',
                         fullLspFoundLocations,
                         cachedRenameOperation
                     );
@@ -139,10 +178,10 @@ async function predictLocationIfHasEditAtSelectedLine(event: vscode.TextEditorSe
 }
 
 async function predictEdit() {
-    if (!globalEditorState.isActiveEditorLanguageSupported()) {
-        vscode.window.showInformationMessage(`Predicting edit canceled: language ${globalEditorState.language} not supported yet.`);
-        return;
-    }
+    // if (!globalEditorState.isActiveEditorLanguageSupported()) {
+    //     vscode.window.showInformationMessage(`Predicting edit canceled: language ${globalEditorState.language} not supported yet.`);
+    //     return;
+    // }
     
     const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
     if (commitMessage === undefined) return;
@@ -206,6 +245,8 @@ async function predictEdit() {
 
         const selectedNavEditResult = globalQueryContext.activeNavEditLocationResult;
         if (selectedNavEditResult) {
+            editType = 'replace';
+
             const locationsInFile = selectedNavEditResult.getLocations().get(uri.toString());
             const coveredInLocation = locationsInFile?.find((location) => {
                 const startLine = location.code_window_start_line;
@@ -221,12 +262,19 @@ async function predictEdit() {
                 inlineLabels = coveredInLocation.inline_labels;
                 interLabels = coveredInLocation.inter_labels;
 
+                // interLabels.forEach((label, index) => {
+                //     if (label === '<insert>') {
+                //         inlineLabels[index] = '<add>';
+                //     }
+                // });
+
+                // if (inlineLabels.length > codeWindow.length && endLine + inlineLabels.length - codeWindow.length < fileLines.length) {
+                //     codeWindow.push(...fileLines.slice(endLine, endLine + inlineLabels.length - codeWindow.length));
+                // }
+
                 shouldUseOriginalCodeWindow = false;
             }
         }
-
-        let contextStartLine = startLine;
-        let contextEndLine = endLine;
 
         if (shouldUseOriginalCodeWindow) {
             startLine = fromLine;
@@ -239,29 +287,32 @@ async function predictEdit() {
             } else {
                 inlineLabels = new Array(endLine - startLine).fill('<replace>');
             }
-
-
-            // Do we need to add more context beyond the locator response code window?
-            // We need, if the code window is from user selection, not the locator
-    
-            const contextLinesBefore = 3;
-            const contextLinesAfter = 3;
-
-            const contextStartLine = Math.max(startLine - contextLinesBefore, 0);
-            const contextEndLine = Math.min(endLine + contextLinesAfter, fileLines.length);
-    
-            const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
-            const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
-            codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
-            
-            const inlineLabelsBefore = new Array(codeWindowContextBefore.length).fill('<keep>');
-            const inlineLabelsAfter = new Array(codeWindowContextAfter.length).fill('<keep>');
-            inlineLabels = [inlineLabelsBefore, inlineLabels, inlineLabelsAfter].flat();
-    
-            const interLabelsBefore = new Array(codeWindowContextBefore.length).fill('<null>');
-            const interLabelsAfter = new Array(codeWindowContextAfter.length).fill('<null>');
-            interLabels = [interLabelsBefore, interLabels, interLabelsAfter].flat();
         }
+        
+        let contextStartLine = startLine;
+        let contextEndLine = endLine;
+
+        // Do we need to add more context beyond the locator response code window?
+        // We need, if the code window is from user selection, not the locator
+
+        const contextLinesBefore = 3;
+        const contextLinesAfter = 3;
+
+        contextStartLine = Math.max(startLine - contextLinesBefore, 0);
+        contextEndLine = Math.min(endLine + contextLinesAfter, fileLines.length);
+
+        const codeWindowContextBefore = fileLines.slice(contextStartLine, startLine);
+        const codeWindowContextAfter = fileLines.slice(endLine, contextEndLine);
+        codeWindow = [codeWindowContextBefore, codeWindow, codeWindowContextAfter].flat();
+        
+        const inlineLabelsBefore = new Array(codeWindowContextBefore.length).fill('<keep>');
+        const inlineLabelsAfter = new Array(codeWindowContextAfter.length).fill('<keep>');
+        inlineLabels = [inlineLabelsBefore, inlineLabels, inlineLabelsAfter].flat();
+
+        const interLabelsBefore = new Array(codeWindowContextBefore.length).fill('<null>');
+        const interLabelsAfter = new Array(codeWindowContextAfter.length).fill('<null>');
+        interLabels = [interLabelsBefore, interLabels, interLabelsAfter].flat();
+
 
         const {
             requestEdits,
@@ -321,7 +372,7 @@ async function predictEdit() {
             contextEndLine,
             replacementStringsOfEntireBlock,
             tempWrite,
-            false
+            editType === 'add'
         );
         await selector.init();
         await selector.editDocumentAndShowDiff();

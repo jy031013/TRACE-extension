@@ -135,11 +135,11 @@ def is_clone_edit(prior_edits: list):
     if len(prior_edits) < 2:
         return False
     
-    tgt_edit_code_before = "".join(prior_edits[-1]["before"])
+    tgt_edit_code_before = "".join(prior_edits[-1]["before_edit"])
     if tgt_edit_code_before.strip() == "":
         return False
     
-    other_edit_code_before = "".join(prior_edits[-2]["before"])
+    other_edit_code_before = "".join(prior_edits[-2]["before_edit"])
     if other_edit_code_before.strip() == "":
         return False
     

@@ -403,6 +403,8 @@ class QueryContext extends DisposableComponent {
             locationsByFile[filePath] = fileLocations.filter((loc) => {
                 const inlineLabels = loc.inline_labels;
                 const confidence = loc.inline_confidences;
+
+                // filter out low confidence
                 return inlineLabels.every((label, index) => {
                     if (label !== '<keep>' && confidence[index] < confidenceThreshold) {
                         return false;
@@ -423,16 +425,27 @@ class QueryContext extends DisposableComponent {
                     const labels: [string, number, number][] = [];
 
                     editLocation.inline_labels.forEach((label: string, index: number) => {
-                        if (label === '<keep>')
-                            return;
-                        if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
-                            labels.push([label, startLine + index, 0]);
+                        if (label !== '<keep>') {
+                            if (labels.length === 0 || labels.at(-1)?.[0] !== label) {
+                                labels.push([label, startLine + index, 0]);
+                            }
+                            const lastLabel = labels.at(-1);
+                            if (lastLabel) {
+                                lastLabel[2] += 1;
+                            }
                         }
-                        const lastLabel = labels.at(-1);
-                        if (lastLabel) {
-                            lastLabel[2] += 1;
+                        // deal with <insert> label in inter_line labels
+                        if (editLocation.inter_labels[index] === '<insert>') {
+                            labels.push(['<add>', startLine + index, 1]);
                         }
                     });
+
+                    if (editLocation.inter_labels.length > editLocation.inline_labels.length) {
+                        const index = editLocation.inter_labels.length - 1;
+                        if (editLocation.inter_labels[index] === '<insert>') {
+                            labels.push(['<add>', startLine + index, 1]);
+                        }
+                    }
         
                     for (const [label, start, lines] of labels) {
                         const _label = label.slice(1, -1);

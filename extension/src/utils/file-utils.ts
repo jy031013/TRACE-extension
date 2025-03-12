@@ -306,13 +306,16 @@ async function globFiles(rootPath: string, globPatterns: string[] = []) {
         ignore: gitignorePatterns["exclude"],
         nodir: true
     });
-    const reincludedPathList = await glob(gitignorePatterns["include"], {
-        root: rootPath,
-        windowsPathsNoEscape: true,
-        ignore: gitignorePatterns["permExclude"],
-        nodir: true
-    });
-    return pathList.concat(reincludedPathList);
+    
+    // const reincludedPathList = await glob(gitignorePatterns["include"], {
+    //     root: rootPath,
+    //     windowsPathsNoEscape: true,
+    //     ignore: gitignorePatterns["permExclude"],
+    //     nodir: true
+    // });
+    // return pathList.concat(reincludedPathList);
+
+    return pathList;
 }
 
 function replaceCurrentSnapshot(fileList: [string, string | undefined][]) {
@@ -348,10 +351,7 @@ export async function readMostRelatedFiles() {
     const fileContents: [string, string][] = [];
     const specialRelativePaths = [
         'extensions-builtin/ScuNET/scripts',
-        'extensions-builtin/SwinIR/scripts',
-        'official/nlp/bert',
-        'keras/layers',
-        'sklearn/tree'
+        'extensions-builtin/SwinIR/scripts'
     ];
     for (const p of specialRelativePaths) {
         const extraFileContents = await readFilesDefaultCollected(path.join(workspaceRoot, p));
@@ -359,8 +359,13 @@ export async function readMostRelatedFiles() {
     }
 
     const specialRelativeFilePatterns = [
-        '/modules/*_model.py',
-        '/modules/modelloader.py'
+        '/modules/esrgan_model.py',
+        '/modules/gfpgan_model.py',
+        '/modules/modelloader.py',
+        '/keras/layers/core.py',
+        '/sklearn/tree/_classes.py',
+        '/official/nlp/bert/input_pipeline.py',
+        '/official/nlp/bert/run_classifier.py'
     ];
     const extraFileContents = await readFilesDefaultCollected(workspaceRoot, specialRelativeFilePatterns);
     fileContents.push(...extraFileContents);
