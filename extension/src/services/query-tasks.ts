@@ -49,125 +49,131 @@ async function predictLocationByTRACE() {
     //     return;
     // }
     return await globalEditLock.tryWithLock(async () => {
-        const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
-        if (commitMessage === undefined) return;
+        return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
+            return await _predictLocationByTRACE();
+        });
+    });
+}
 
-        statusBarItem.setStatusLoadingFiles();
-        
-        const fileContents = await readMostRelatedFiles();
-        const currentFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+async function _predictLocationByTRACE() {
+    const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
+    if (commitMessage === undefined) return;
 
-        // Split the file content into lines
-        const files: [string, string[]][] = [];
-        for (const [filePath, content] of fileContents) {
-            const lines = splitLines(content, false);
+    statusBarItem.setStatusLoadingFiles();
+    
+    const fileContents = await readMostRelatedFiles();
+    const currentFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
 
-            // limit lines except for current file
-            if (filePath !== currentFilePath) {
-                const maxLines = 500;
-                if (lines.length > maxLines) {
-                    lines.splice(maxLines);
-                }
+    // Split the file content into lines
+    const files: [string, string[]][] = [];
+    for (const [filePath, content] of fileContents) {
+        const lines = splitLines(content, false);
+
+        // limit lines except for current file
+        if (filePath !== currentFilePath) {
+            const maxLines = 500;
+            if (lines.length > maxLines) {
+                lines.splice(maxLines);
             }
-
-            files.push([filePath, lines]);
         }
 
-        const filesAtPath: { [key: string]: string[] } = {};
-        for (const file of files) {
-            filesAtPath[file[0]] = file[1];
-        }
+        files.push([filePath, lines]);
+    }
 
-        const {
+    const filesAtPath: { [key: string]: string[] } = {};
+    for (const file of files) {
+        filesAtPath[file[0]] = file[1];
+    }
+
+    const {
+        requestEdits,
+        lspType,
+        fullLspFoundLocations,
+        cachedRenameOperation
+    } = await globalEditInfoCollector.exportAnalyzedEdits();
+
+    try {
+        statusBarItem.setStatusQuerying("locator");
+        // TODO depart this step, because it is not parallel to other steps
+        
+        const invokerResult = await requestInvokerAndLocationByTRACE(
+            filesAtPath,
             requestEdits,
+            commitMessage,
+            globalEditorState.language,
             lspType,
             fullLspFoundLocations,
             cachedRenameOperation
-        } = await globalEditInfoCollector.exportAnalyzedEdits();
+        );
+        if (invokerResult) {
+            if (invokerResult instanceof Array) {
+                if (invokerResult[0] === 'rename') {
+                    globalQueryContext.updateRefactor(invokerResult[1]);
+                } else if (invokerResult[0] === 'location') {
+                    globalQueryContext.updateTRACELocations(invokerResult[1]);
+                } else if (invokerResult[0] === 'def&ref') {
+                    const symbolInfo = invokerResult[1];
 
-        try {
-            statusBarItem.setStatusQuerying("locator");
-            // TODO depart this step, because it is not parallel to other steps
-            
-            const invokerResult = await requestInvokerAndLocationByTRACE(
-                filesAtPath,
-                requestEdits,
-                commitMessage,
-                globalEditorState.language,
-                lspType,
-                fullLspFoundLocations,
-                cachedRenameOperation
-            );
-            if (invokerResult) {
-                if (invokerResult instanceof Array) {
-                    if (invokerResult[0] === 'rename') {
-                        globalQueryContext.updateRefactor(invokerResult[1]);
-                    } else if (invokerResult[0] === 'location') {
-                        globalQueryContext.updateTRACELocations(invokerResult[1]);
-                    } else if (invokerResult[0] === 'def&ref') {
-                        const symbolInfo = invokerResult[1];
+                    const correspondingInfoType = symbolInfo.type === 'def' ? 'ref' : 'def';
 
-                        const correspondingInfoType = symbolInfo.type === 'def' ? 'ref' : 'def';
+                    const lastEdit = requestEdits[requestEdits.length - 1];
+                    const focusedLspFoundLocation = await globalEditInfoCollector.exportLspFoundLocationsForSymbolRange({
+                        type: correspondingInfoType,
+                        fileUri: vscode.Uri.file(requestEdits[requestEdits.length - 1].path),
+                        symbolName: symbolInfo.name,
+                        symbolRange: new vscode.Range(
+                            new vscode.Position(symbolInfo.name_range_start[0] + lastEdit.line, symbolInfo.name_range_start[1]),
+                            new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
+                        )
+                    });
 
-                        const lastEdit = requestEdits[requestEdits.length - 1];
-                        const focusedLspFoundLocation = await globalEditInfoCollector.exportLspFoundLocationsForSymbolRange({
-                            type: correspondingInfoType,
-                            fileUri: vscode.Uri.file(requestEdits[requestEdits.length - 1].path),
-                            symbolName: symbolInfo.name,
-                            symbolRange: new vscode.Range(
-                                new vscode.Position(symbolInfo.name_range_start[0] + lastEdit.line, symbolInfo.name_range_start[1]),
-                                new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
-                            )
-                        });
-
-                        const locatorResult = focusedLspFoundLocation.length > 0
-                            ? await requestTRACELocator(
-                                filesAtPath,
-                                requestEdits,
-                                commitMessage,
-                                globalEditorState.language,
-                                'def&ref',
-                                focusedLspFoundLocation,
-                                cachedRenameOperation
-                            )
-                            : await requestTRACELocator(
-                                filesAtPath,
-                                requestEdits,
-                                commitMessage,
-                                globalEditorState.language,
-                                'normal',
-                                fullLspFoundLocations,
-                                cachedRenameOperation
-                            );
-
-                        if (locatorResult) {
-                            globalQueryContext.updateTRACELocations(locatorResult.files);
-                        }
-                    }
-                } else {
-                    const locatorResult = await requestTRACELocator(
-                        filesAtPath,
-                        requestEdits,
-                        commitMessage,
-                        globalEditorState.language,
-                        'normal',
-                        fullLspFoundLocations,
-                        cachedRenameOperation
-                    );
+                    const locatorResult = focusedLspFoundLocation.length > 0
+                        ? await requestTRACELocator(
+                            filesAtPath,
+                            requestEdits,
+                            commitMessage,
+                            globalEditorState.language,
+                            'def&ref',
+                            focusedLspFoundLocation,
+                            cachedRenameOperation
+                        )
+                        : await requestTRACELocator(
+                            filesAtPath,
+                            requestEdits,
+                            commitMessage,
+                            globalEditorState.language,
+                            'normal',
+                            fullLspFoundLocations,
+                            cachedRenameOperation
+                        );
 
                     if (locatorResult) {
                         globalQueryContext.updateTRACELocations(locatorResult.files);
                     }
                 }
+            } else {
+                const locatorResult = await requestTRACELocator(
+                    filesAtPath,
+                    requestEdits,
+                    commitMessage,
+                    globalEditorState.language,
+                    'normal',
+                    fullLspFoundLocations,
+                    cachedRenameOperation
+                );
+
+                if (locatorResult) {
+                    globalQueryContext.updateTRACELocations(locatorResult.files);
+                }
             }
-            
-            statusBarItem.setStatusDefault();
-        } catch (err) {
-            vscode.window.showErrorMessage(`Oops! Something went wrong with the query request...: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            statusBarItem.setStatusProblem("Some error occurred when predicting locations");
-            throw err;
         }
-    });
+        
+        statusBarItem.setStatusDefault();
+    } catch (err) {
+        vscode.window.showErrorMessage(`Oops! Something went wrong with the query request...: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        statusBarItem.setStatusProblem("Some error occurred when predicting locations");
+        throw err;
+    }
 }
 
 async function predictLocationIfHasEditAtSelectedLine(event: vscode.TextEditorSelectionChangeEvent) {
@@ -182,7 +188,14 @@ async function predictEdit() {
     //     vscode.window.showInformationMessage(`Predicting edit canceled: language ${globalEditorState.language} not supported yet.`);
     //     return;
     // }
-    
+    return await globalEditLock.tryWithLock(async () => {
+        return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Generating...' }, async () => {
+            return await _predictEdit();
+        });
+    });
+}
+
+async function _predictEdit() {
     const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
     if (commitMessage === undefined) return;
     
@@ -451,6 +464,7 @@ class GenerateEditCommand extends DisposableComponent {
             vscode.commands.registerCommand("trace.acceptEdit", async () => {
                 globalEditorState.toPredictLocation = true;
                 await acceptEdit();
+                globalQueryContext.clearResults();
                 // await closeTab();
             }),
             vscode.commands.registerCommand("trace.dismissEdit", async () => {

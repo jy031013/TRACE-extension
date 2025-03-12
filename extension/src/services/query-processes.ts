@@ -379,9 +379,7 @@ async function requestInvokerAndLocationByTRACE(
     };
     statusBarItem.setStatusQuerying("locator");
     
-    const invokerOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
-        return await postRequestToTRACEInvoker(invokerInput);
-    });
+    const invokerOutput = await postRequestToTRACEInvoker(invokerInput);
 
     if (!invokerOutput) return undefined;
 
@@ -470,9 +468,7 @@ async function requestEdit(
         lspServiceName: lspServiceName
     };
 
-    const generatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Generating...' }, async () => {
-        return await postRequestToGenerator(generatorInput);
-    });
+    const generatorOutput = await postRequestToGenerator(generatorInput);
     
     return generatorOutput;
 }
