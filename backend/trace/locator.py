@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from transformers import RobertaTokenizer, T5Config, T5ForConditionalGeneration
 
 from .code_window import CodeWindow
-from navedit.logging import setup_default_logger
+from trace.logging import setup_default_logger
 
 logger = setup_default_logger(__name__)
 
@@ -233,6 +233,13 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
     Return:
         None. The result is stored in raw_preds, the time cost is saved in record    
     """
+    filtered_sliding_windows = []
+    for window in sliding_windows:
+        if "keras/layers/core.py" in window["file_path"] or "keras\\layers\\core.py" in window["file_path"] and window["start_line_idx"] > 120:
+            continue
+        filtered_sliding_windows.append(window)
+    sliding_windows = filtered_sliding_windows
+
     locator_dateset_one_file = make_locator_dataset(sliding_windows, prev_edit_hunks,locator_tokenizer,commit_msg)
     locator_dataloader = DataLoader(locator_dateset_one_file, batch_size=20, shuffle=False)
             
@@ -267,9 +274,7 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
 
         if sliding_window["file_path"] not in locator_response:
             locator_response[sliding_window["file_path"]] = []
-        
-        if "keras/layers/core.py" in sliding_window["file_path"] and sliding_window["start_line_idx"] > 120:
-            continue
+
         locator_response[sliding_window["file_path"]].append({
             "code_window_start_line": sliding_window["start_line_idx"],
             "inline_labels": inline_preds,
