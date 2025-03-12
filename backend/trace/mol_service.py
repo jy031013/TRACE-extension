@@ -214,5 +214,7 @@ def generator_interface(data):
 
     return generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, lsp_service_name)
 
-
-    
+# Load all models immediately
+load_model_with_cache("invoker_model", load_invoker)
+load_model_with_cache("locator_model", load_locator)
+load_model_with_cache("generator_model", load_generator)
