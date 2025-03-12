@@ -362,7 +362,7 @@ export class DeterminedRenameRefactor implements Refactor {
     }
 }
 
-class QueryContext extends DisposableComponent {
+export class QueryContext extends DisposableComponent {
     readonly querySettings: QuerySettings = new QuerySettings();
     activeLocationResult?: LocationResult;
     activeNavEditLocationResult?: NavEditLocationResult;
@@ -400,6 +400,7 @@ class QueryContext extends DisposableComponent {
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {
             const fileLocations = locationsByFile[filePath];
+
             locationsByFile[filePath] = fileLocations.filter((loc) => {
                 const inlineLabels = loc.inline_labels;
                 const confidence = loc.inline_confidences;
@@ -411,7 +412,12 @@ class QueryContext extends DisposableComponent {
                     }
                     return true;
                 });
+
+                // FIXME not filtering inter-line labels, and the threshold is not working
             });
+
+            // do splitting
+            locationsByFile[filePath] = this.preProcessLocations(locationsByFile[filePath]);
         }
 
 
@@ -486,6 +492,7 @@ class QueryContext extends DisposableComponent {
 
             locations.push([uri, fileLocations]);
         }
+
         this.activeNavEditLocationResult = new NavEditLocationResult(locations);
     }
 
@@ -499,6 +506,131 @@ class QueryContext extends DisposableComponent {
     async applyRefactor() {
         await this.activeRefactorResult?.apply();
         await this.activeRefactorResult?.closeRefactorPreview();
+    }
+
+    // NOTE must pre-process and split locations like this. Each location that the generator needs should contain only either 'inline' or 'inter' edit
+    // e.g.
+    // "inline_labels": [
+    //     "<keep>",
+    //     "<keep>",
+    //     "<keep>",
+    //     "<keep>",
+    //     "<replace>",
+    //     "<keep>",
+    //     "<keep>",
+    //     "<keep>"
+    // ],
+    // "inter_labels": [
+    //     "<null>",
+    //     "<null>",
+    //     "<null>",
+    //     "<null>",
+    //     "<null>",
+    //     "<null>",
+    //     "<insert>",
+    //     "<null>",
+    //     "<null>"
+    // ],
+    private preProcessLocations(locs: ResponseEditLocationWithLabels[]): ResponseEditLocationWithLabels[] {
+        const processedLocations: ResponseEditLocationWithLabels[] = [];
+
+        for (const loc of locs) {
+            processedLocations.push(...this.preProcessSingleLocation(loc));
+        }
+        
+        return processedLocations;
+    }
+
+    private preProcessSingleLocation(loc: ResponseEditLocationWithLabels): ResponseEditLocationWithLabels[] {
+        const processedLocations: ResponseEditLocationWithLabels[] = [];
+
+        // Judge if multiple edits are in one location
+        let countOfEditBlocks = 0;
+        countOfEditBlocks += loc.inline_labels.filter(label => label !== '<keep>').length;
+        countOfEditBlocks += loc.inter_labels.filter(label => label !== '<null>').length;
+        if (countOfEditBlocks <= 1) {
+            processedLocations.push(loc);
+            return processedLocations;
+        }
+
+        type EditType = string;
+        const numLines = loc.inline_labels.length;
+        const newLocs: {
+            type: EditType,
+            line: number
+        }[] = [];
+
+        const getLastLoc = () => newLocs[newLocs.length - 1];
+
+        // We can merge '<replace>' with adjoined '<insert>'
+        // If not adjoined, we must separate them
+        let couldMergeLast = false;
+        const tryMergeType = (prevType: EditType, currentType: EditType): [undefined, EditType] | [EditType, undefined] | undefined => {
+            if (
+                prevType === '<replace>' && currentType === '<insert>'
+            ) {
+                return [prevType, undefined];
+            }
+
+            if (
+                currentType === '<replace>' && prevType === '<insert>'
+            ) {
+                return [undefined, currentType];
+            }
+
+            return undefined;
+        };
+        const processNext = (line: number, label: string) => {
+            const editedType: EditType = label;
+            if (editedType === '<keep>' || editedType === '<null>') {
+                // the next possible edit is already split to last
+                couldMergeLast = false;
+                return;
+            } else {
+                let hasMerged = false;
+                if (couldMergeLast && newLocs.length > 0) {
+                    const lastType = getLastLoc().type;
+                    const mergeResult = tryMergeType(lastType, editedType);
+                    if (mergeResult) {
+                        const [prev, current] = mergeResult;
+                        newLocs.splice(-1, 1, {
+                            type: prev ?? current,
+                            line: prev ? getLastLoc().line : line
+                        });
+                        hasMerged = true;
+                    }
+                }
+                if (!hasMerged) {
+                    newLocs.push({ type: editedType, line });
+                }
+                couldMergeLast = true;
+            }
+        };
+
+        // Interval join the inline and interline labels
+        for (let i = 0; i < numLines; ++i) {
+            processNext(i, loc.inter_labels[i]);
+            processNext(i, loc.inline_labels[i]);
+        }
+        if (loc.inter_labels.length > numLines) {
+            processNext(numLines, loc.inter_labels[numLines]);
+        }
+
+        for (const newLoc of newLocs) {
+            const newLocCopy = { ...loc };
+            newLocCopy.inline_labels = Array(numLines).fill('<keep>');
+            newLocCopy.inter_labels = Array(numLines + 1).fill('<null>');
+
+            if (newLoc.type === '<replace>' || newLoc.type === '<delete>') {
+                newLocCopy.inline_labels[newLoc.line] = newLoc.type;
+            } else if (newLoc.type === '<insert>') {
+                newLocCopy.inter_labels[newLoc.line] = '<insert>';
+            }
+
+            processedLocations.push(newLocCopy);
+        }
+
+        return processedLocations;
     }
 }
 
