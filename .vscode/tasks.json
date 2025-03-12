@@ -6,7 +6,7 @@
 		{
 			"type": "shell",
 			"label": "reset-example-1",
-			"command": "git checkout 9f214^1",
+			"command": "git fetch --all && git checkout 9f214^1",
 			"options": {
 				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/stable-diffusion-webui"
 			},
@@ -19,7 +19,7 @@
 		{
 			"type": "shell",
 			"label": "reset-example-2",
-			"command": "git checkout 744e2ac^1",
+			"command": "git fetch --all && git checkout 744e2ac^1",
 			"options": {
 				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/models"
 			},
@@ -32,7 +32,7 @@
 		{
 			"type": "shell",
 			"label": "reset-example-3",
-			"command": "git checkout f3193^1",
+			"command": "git fetch --all && git checkout f3193^1",
 			"options": {
 				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/keras"
 			},
@@ -45,7 +45,7 @@
 		{
 			"type": "shell",
 			"label": "reset-example-4",
-			"command": "git checkout 935e7^1",
+			"command": "git fetch --all && git checkout 935e7^1",
 			"options": {
 				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/scikit-learn"
 			},
