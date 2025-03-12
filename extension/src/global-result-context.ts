@@ -8,7 +8,7 @@ import { findFirstDiffPos } from "./utils/utils";
 import { getLineInfoInDocument } from "./utils/file-utils";
 import { diffWords } from "diff";
 import { CodeRangesInFile } from "./editor-state-monitor";
-import { ResponseEditLocationWithLabels, ResponseNavEditLocator } from "./services/backend-requests";
+import { ResponseEditLocationWithLabels, ResponseTRACELocator } from "./services/backend-requests";
 
 // TODO consider using/transfering to `async-lock` for this
 class EditLock {
@@ -87,10 +87,10 @@ class LocationResult {
 }
 
 /**
- * NavEdit predicted locations with labels on each line,
+ * TRACE predicted locations with labels on each line,
  * which could contain a set of edits.
  */
-class NavEditLocationResult {
+class TRACELocationResult {
     /** Indexed as [URI String] -> [Location Results] */
     private readonly locations: Map<string, ResponseEditLocationWithLabels[]>;
     
@@ -365,13 +365,13 @@ export class DeterminedRenameRefactor implements Refactor {
 export class QueryContext extends DisposableComponent {
     readonly querySettings: QuerySettings = new QuerySettings();
     activeLocationResult?: LocationResult;
-    activeNavEditLocationResult?: NavEditLocationResult;
+    activeTRACELocationResult?: TRACELocationResult;
     activeRefactorResult?: SingleRefactorResult;
 
     constructor() {
         super();
         this.register(
-            vscode.commands.registerCommand('navEdit.inputMessage', () => {
+            vscode.commands.registerCommand('trace.inputMessage', () => {
                 this.querySettings.inputCommitMessage();
             })
         );
@@ -380,7 +380,7 @@ export class QueryContext extends DisposableComponent {
     clearResults() {
         this.activeLocationResult?.dispose();
         this.activeRefactorResult?.dispose();
-        this.activeLocationResult = undefined,
+        this.activeLocationResult = undefined;
         this.activeRefactorResult = undefined;
     }
 
@@ -394,7 +394,7 @@ export class QueryContext extends DisposableComponent {
         this.activeLocationResult = new LocationResult(locations);
     }
 
-    updateNavEditLocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
+    updateTRACELocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
         const confidenceThreshold = 0.9;
 
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
@@ -493,7 +493,7 @@ export class QueryContext extends DisposableComponent {
             locations.push([uri, fileLocations]);
         }
 
-        this.activeNavEditLocationResult = new NavEditLocationResult(locations);
+        this.activeTRACELocationResult = new TRACELocationResult(locations);
     }
 
     updateRefactor(refactor: Refactor) {
