@@ -2,7 +2,7 @@
   "name": "trace-codephilia",
   "displayName": "CodeTRACE",
   "description": "A code co-edit helper.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "icon": "assets/TRACE-logo.png",
   "publisher": "CodePhilia",
