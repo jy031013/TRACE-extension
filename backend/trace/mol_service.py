@@ -69,11 +69,6 @@ def invoker_interface(data):
         if last edit is a normal edit, this function will directly call locator and return predicted edit labels
         otherwise, send edit composition type to front end
     """
-    # If frontend LSP detected clone or diagnose, and found locations, directly call locator
-    if data["lspServiceName"] in ["diagnose"] and data["lspFoundLocations"] is not []:
-        print("+++ prevEdit has caused diagnoses, skip invoker, directly sending diagnose location to Locator.")
-        return locator_interface(data)
-    
     lang = data["language"]
     # Transform the 3 label representation to 6 label representation
     prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
@@ -103,6 +98,10 @@ def invoker_interface(data):
                 "info": gate_info
             }
             
+    elif data["lspServiceName"] in ["diagnose"] and len(data["lspFoundLocations"]) > 0:
+        print("+++ prevEdit has caused diagnoses, skip invoker, directly sending diagnose location to Locator.")
+        return locator_interface(data)
+    
     elif (len(data["prevEdits"]) > 0):
         # find clones on backend
         # this could probably find some clones
