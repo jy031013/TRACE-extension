@@ -427,15 +427,26 @@ export class QueryContext extends DisposableComponent {
 
             locationsByFile[filePath] = fileLocations.filter((loc) => {
                 const inlineLabels = loc.inline_labels;
-                const confidence = loc.inline_confidences;
+                const interLabels = loc.inter_labels;
+                const inline_confidences = loc.inline_confidences;
+                const inter_confidences = loc.inter_confidences;
 
                 // filter out low confidence
-                return inlineLabels.every((label, index) => {
-                    if (label !== '<keep>' && confidence[index] < confidenceThreshold) {
-                        return false;
-                    }
-                    return true;
-                });
+                return (
+                    inlineLabels.every((label, index) => {
+                        if (label !== '<keep>' && inline_confidences[index] < confidenceThreshold) {
+                            return false;
+                        }
+                        return true;
+                    }) &&
+                    interLabels.every((label, index) => {
+                        if (label !== '<null>' && inter_confidences[index] < confidenceThreshold) {
+                            return false;
+                        }
+                        return true;
+                    })
+                );
+                        
 
                 // FIXME not filtering inter-line labels, and the threshold is not working
             });
