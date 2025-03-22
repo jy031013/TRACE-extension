@@ -140,12 +140,12 @@
         {
           "command": "trace.predictLocations",
           "group": "navigation@-99",
-          "when": "editorFocus && (!(trace:isEditDiff)) && trace:isLanguageSupported"
+          "when": "(!(trace:isEditDiff)) && trace:isLanguageSupported"
         },
         {
           "command": "trace.generateEdits",
           "group": "navigation@-98",
-          "when": "editorFocus && (!(trace:isEditDiff)) && trace:isLanguageSupported"
+          "when": "(!(trace:isEditDiff)) && trace:isLanguageSupported"
         },
         {
           "command": "trace.inputMessage",
