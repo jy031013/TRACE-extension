@@ -264,15 +264,18 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
     async exportAnalyzedEdits() {
         // Only collect the last previous edit
         const currentPrevEditsInfo = await this.exportEditsWithMatchedSyntaxInfo(true);
-
-        let cachedRenameOperation: CachedRenameOperation | undefined;
-
+        
         let lspType: PreJudgedLspType = 'normal';
+        let cachedRenameOperation: CachedRenameOperation | undefined;
+        const fullLspFoundLocations: RequestLspFoundLocation[] = [];
+        
         if (currentPrevEditsInfo.length > 0) {
+            const lastPrevEdit = currentPrevEditsInfo[currentPrevEditsInfo.length - 1];
+
             // TODO 'rename' is detect by backend invoker, why not detect it here?
             for (const lspInfoTypeToDetect of ['def', 'ref'] as const) {
                 for (const syntaxInfoType of ['beforeSyntaxInfo', 'afterSyntaxInfo'] as const) {
-                    const detected = currentPrevEditsInfo[0][syntaxInfoType]?.[lspInfoTypeToDetect];
+                    const detected = lastPrevEdit[syntaxInfoType]?.[lspInfoTypeToDetect];
                     if (detected && detected.length > 0) {
                         switch (lspInfoTypeToDetect) {
                             case 'def':
@@ -284,7 +287,7 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                 }
             }
 
-            const renameInfo = currentPrevEditsInfo[0]['beforeSyntaxInfo']?.rename;
+            const renameInfo = lastPrevEdit['beforeSyntaxInfo']?.rename;
             if (renameInfo && renameInfo.length > 0) {
                 const firstRenameInfo = renameInfo[0];
                 cachedRenameOperation = {
@@ -292,35 +295,30 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
                     ranges: firstRenameInfo[1].allRenameRanges
                 };
             }
-        }
 
-        const fullLspFoundLocations: RequestLspFoundLocation[] = [];
-
-        if (currentPrevEditsInfo.length > 0) {
-            const lspFoundLocationsForEdit = await globalEditInfoCollector.exportLspFoundLocationsForEdit(currentPrevEditsInfo[0]);
-
+            
+            const lspFoundLocationsForEdit = await globalEditInfoCollector.exportLspFoundLocationsForEdit(lastPrevEdit);
+            
             if (lspFoundLocationsForEdit.clone.length > 0 && lspType === 'normal') {
                 lspType = 'clone';
             }
-
+            
             fullLspFoundLocations.push(...[
                 lspFoundLocationsForEdit.def,
                 lspFoundLocationsForEdit.ref,
                 lspFoundLocationsForEdit.rename,
                 lspFoundLocationsForEdit.clone
             ].flat());
+            
+            const lspFoundLocationsForDiagnose = await globalEditInfoCollector.exportLspFoundLocationsForDiagnose(lastPrevEdit.edit.timestamp);
+            if (lspFoundLocationsForDiagnose.length > 0) {
+                lspType = 'diagnose';
+            }
+            fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
         }
-
-        // FIXME diagnose is not enabled now
-
-        // const lspFoundLocationsForDiagnose = await globalEditInfoCollector.exportLspFoundLocationsForDiagnose();
-        // if (lspFoundLocationsForDiagnose.length > 0 && lspType === 'normal') {
-        //     lspType = 'diagnose';
-        // }
-        // fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
-
+        
         const requestEdits: RequestEdit[] = currentPrevEditsInfo.map(({ edit: editWithTimestamp }) => convertToRequestEdit(editWithTimestamp));
-
+        
         return {
             requestEdits,
             lspType,
@@ -498,10 +496,12 @@ class EditWatcher implements vscode.Disposable {
         // Extract diagnostic2 - diagnostic1 by uri
         const matchedRecords: [vscode.Uri, vscode.Diagnostic[]][] = [];
         for (const [uri, diags] of diagnostic2) {
-            const diags1 = diagnostic1.find((_uri, _diags) => _uri.toString() === uri.toString());
+            const diags1 = diagnostic1.find(([_uri, _diags]) => _uri.toString() === uri.toString());
 
             if (!diags1) {
-                matchedRecords.push([uri, diags]);
+                if (diags.length > 0) {
+                    matchedRecords.push([uri, diags]);
+                }
             } else {
                 const newDiags = diags.filter(diag => !diags1[1].some(
                     _diag => this.diagnosticEntryEqual(_diag, diag)
