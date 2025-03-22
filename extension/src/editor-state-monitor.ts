@@ -1025,39 +1025,77 @@ class EditReducer {
             }
 
             if (oldEditIdx > fromIdx) {
-                const minIdx = Math.max.apply(
-                    null,
-                    oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
-                );
-                // Don't set it back to the earliest timestamp here, or the backend will has error taking the earliest edit
-                // newEdit.timestamp = Math.min(
-                //     ...oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
-                // );
-                leftOldEditsOnFile.set(minIdx, newEdit);
+                // IMPORTANT filter exactly match of one previous edit
+                let isExactlyPreviousEdit = false;
+                if (oldEditIdx - fromIdx === 1) {
+                    const onlyTouchedEdit = oldEditsWithIdxOnFile[fromIdx].edit;
+                    const comparedAttributes: (keyof EditWithTimestamp)[] = ['rmLine', 'rmText', 'addLine', 'addText', 'codeAbove', 'codeBelow'];
+
+                    let allTheSame = true;
+                    for (const attr of comparedAttributes) {
+                        let oldV: any = onlyTouchedEdit[attr];
+                        let newV: any = newEdit[attr];
+
+                        if (oldV instanceof Array) {
+                            oldV = oldV.join();
+                        }
+                        if (newV instanceof Array) {
+                            newV = newV.join();
+                        }
+
+                        if (oldV !== newV) {
+                            allTheSame = false;
+                            break;
+                        }
+                    }
+                    
+                    if (allTheSame) {
+                        isExactlyPreviousEdit = true;
+                        leftOldEditsOnFile.set(oldEditsWithIdxOnFile[fromIdx].idx, onlyTouchedEdit);
+                    }
+                }
+
+                // FIXME If this edit is shifted in lines due to other edits, how do you know they are the same? And how do you detect them since they are no longer touched?
+                if (!isExactlyPreviousEdit) {
+                    const minIdx = Math.max.apply(
+                        null,
+                        oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.idx)
+                    );
+                    // Don't set it back to the earliest timestamp here, or the backend will has error taking the earliest edit
+                    // newEdit.timestamp = Math.min(
+                    //     ...oldEditsWithIdxOnFile.slice(fromIdx, oldEditIdx).map((edit) => edit.edit.timestamp),
+                    // );
+                    leftOldEditsOnFile.set(minIdx, newEdit);
+                }
+                
             } else {
                 newEdits.push(newEdit);
             }
         }
 
         for (let i = 0; i < newDiffs.length; ++i) {
-            const diff = newDiffs[i];
+            const newDiff = newDiffs[i];
 
             let edit: EditWithTimestamp | undefined;
-            if (diff.removed) {
+            if (newDiff.removed) {
                 // unite the following "+" (added) diff
                 if (i + 1 < newDiffs.length && newDiffs[i + 1].added) {
-                    edit = createEdit(diff, newDiffs[i + 1]);
-                    if (!(newDiffs[i + 1].removed)) {
+                    // this will only shift lastLine for newEdit[i], still need to shift newEdit[i + 1]
+                    edit = createEdit(newDiff, newDiffs[i + 1]);
+
+                    // IMPORTANT now lastLine indicates the last line before edit
+                    // FIXME still a big problem that if the before edit version/snapshot of file is different, the old and new edits could not compare
+                    if (!(newDiffs[i + 1].added)) {
                         lastLine += newDiffs[i + 1].count ?? 0;
                     }
                     
                     ++i;
                 } else {
-                    edit = createEdit(diff, undefined);
+                    edit = createEdit(newDiff, undefined);
                 }
-            } else if (diff.added) {
+            } else if (newDiff.added) {
                 // deal with a "+" diff not following a "-" diff
-                edit = createEdit(undefined, diff);
+                edit = createEdit(undefined, newDiff);
             }
 
             if (edit) {
@@ -1065,8 +1103,8 @@ class EditReducer {
             }
 
             // now lastLine represents after-edit snapshot line number
-			if (!(diff.removed)) {
-				lastLine += diff.count ?? 0;
+			if (!(newDiff.added)) {
+				lastLine += newDiff.count ?? 0;
 			}
         }
 
