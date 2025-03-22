@@ -18,15 +18,13 @@ MODEL_CLASSES = {'codet5': (T5Config, T5ForConditionalGeneration, RobertaTokeniz
 CONTEXT_LENGTH = 5
 MODEL_ROLE = "generator"
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 
 
 def load_model_generator(model_path: str, device: torch.device):
     config_class, model_class, tokenizer_class = MODEL_CLASSES["codet5"]
-    
-    config = config_class.from_pretrained("salesforce/codet5-base")
+      
     tokenizer = tokenizer_class.from_pretrained("salesforce/codet5-base")
-    model = model_class.from_pretrained("salesforce/codet5-base")
     new_special_tokens = ["<inter-mask>",
                           "<code_window>", "</code_window>", 
                           "<prompt>", "</prompt>", 
@@ -38,13 +36,16 @@ def load_model_generator(model_path: str, device: torch.device):
                           "<feedback>", "</feedback>"]
     tokenizer.add_tokens(new_special_tokens, special_tokens=True)
     
+    config = config_class.from_pretrained("salesforce/codet5-base")
     config.vocab_size = len(tokenizer)
     new_encoder_embedding = nn.Embedding(config.vocab_size, config.d_model)
-    model.encoder.embed_tokens = new_encoder_embedding
 
+    model = model_class.from_pretrained("salesforce/codet5-base")
+    model.encoder.embed_tokens = new_encoder_embedding
     model.load_state_dict(torch.load(model_path))
     # below type cannot be correctly parsed by pyright
     model.to(device)     # type: ignore
+
     return model, tokenizer
 
 def generate_edit(generator, generator_tokenizer, device, code_window, inline_labels, inter_labels, commit_message, prev_edit_hunks, prev_edit_type):
