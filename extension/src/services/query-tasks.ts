@@ -8,7 +8,7 @@ import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view
 import { statusBarItem } from '../ui/progress-indicator';
 import { EditType, EditWithTimestamp, FileAsHunks, RequestEdit, SimpleEdit } from '../utils/base-types';
 import { splitLines } from '../utils/utils';
-import { globalEditInfoCollector } from '../editor-state-monitor';
+import { convertToRequestEdit, globalEditInfoCollector } from '../editor-state-monitor';
 import { PreJudgedLspType, RequestLspFoundLocation } from './backend-requests';
 import path from 'path';
 import { statisticsCollector } from '../statistics';
@@ -52,6 +52,7 @@ async function predictLocationByTRACE() {
     statisticsCollector.addLog("command", "trace.predictLocations");
 
     return await globalEditLock.tryWithLock(async () => {
+        // FIXME this withProgress will get inputMessage stuck
         return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
             return await _predictLocationByTRACE();
         });
@@ -94,11 +95,13 @@ async function _predictLocationByTRACE() {
     }
 
     const {
-        requestEdits,
+        editsWithTimestamp,
         lspType,
         fullLspFoundLocations,
         cachedRenameOperation
     } = await globalEditInfoCollector.exportAnalyzedEdits();
+
+    const requestEdits = editsWithTimestamp.map(e => convertToRequestEdit(e));
 
     try {
         statisticsCollector.addLog("action", "trace.predictLocations invoker <-");
@@ -138,13 +141,13 @@ async function _predictLocationByTRACE() {
                     //         "name": "input_pipeline.create_classifier_dataset",
                     //         "name_range_start": [
 
-                    const lastEdit = requestEdits[requestEdits.length - 1];
+                    const lastEdit = editsWithTimestamp[editsWithTimestamp.length - 1];
                     const focusedLspFoundLocation = await globalEditInfoCollector.exportLspFoundLocationsForSymbolRange({
                         type: correspondingInfoType,
-                        fileUri: vscode.Uri.file(requestEdits[requestEdits.length - 1].path),
+                        fileUri: vscode.Uri.parse(editsWithTimestamp[editsWithTimestamp.length - 1].uriString),
                         symbolName: symbolInfo.name,
                         symbolRange: new vscode.Range(
-                            new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1]),
+                            new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.currentStartLine, symbolInfo.name_range_end[1]),
                             new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
                         )
                     });
@@ -221,6 +224,7 @@ async function predictEdit() {
     statisticsCollector.addLog("command", "trace.generateEdits");
     
     return await globalEditLock.tryWithLock(async () => {
+        // FIXME this withProgress will get inputMessage stuck
         return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Generating...' }, async () => {
             return await _predictEdit();
         });
@@ -367,11 +371,13 @@ async function _predictEdit() {
 
 
         const {
-            requestEdits,
+            editsWithTimestamp,
             lspType,
             fullLspFoundLocations,
             cachedRenameOperation
         } = await globalEditInfoCollector.exportAnalyzedEdits();
+
+        const requestEdits = editsWithTimestamp.map(e => convertToRequestEdit(e));
 
         let replacementStringsOfEntireBlock = await requestEdit(
             globalEditorState.language,

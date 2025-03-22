@@ -317,10 +317,10 @@ class WorkspaceEditInfoCollector implements vscode.Disposable {
             fullLspFoundLocations.push(...lspFoundLocationsForDiagnose);
         }
         
-        const requestEdits: RequestEdit[] = currentPrevEditsInfo.map(({ edit: editWithTimestamp }) => convertToRequestEdit(editWithTimestamp));
+        const editsWithTimestamp: EditWithTimestamp[] = currentPrevEditsInfo.map(({ edit: editWithTimestamp }) => editWithTimestamp);
         
         return {
-            requestEdits,
+            editsWithTimestamp,
             lspType,
             fullLspFoundLocations,
             cachedRenameOperation
@@ -963,14 +963,25 @@ class EditReducer {
 
         const lines = text.split('\n');
 
-        let lastLine = 0;
+        let currentBeforeLine = 0;
+        let currentAfterLine = 0;
         let oldEditIdx = 0;
+
+        function maintainCurrentLine(diff: Change) {
+            if (!(diff.added)) {
+                currentBeforeLine += diff.count ?? 0;
+            }
+            if (!(diff.removed)) {
+                currentAfterLine += diff.count ?? 0;
+            }
+        }
 
         function createEdit(rmDiff?: Change, addDiff?: Change) {
             // construct new edit
             const newEdit: EditWithTimestamp = {
                 uriString: uriString,
-                line: lastLine,
+                line: currentBeforeLine,
+                currentStartLine: currentAfterLine,
                 rmLine: rmDiff?.count ?? 0,
                 rmText: splitLines(rmDiff?.value ?? "", false),
                 addLine: addDiff?.count ?? 0,
@@ -986,8 +997,8 @@ class EditReducer {
             // }
                 
             // Find context
-            const fromLine = lastLine;
-            const toLine = lastLine + (addDiff?.count ?? 0);
+            const fromLine = currentBeforeLine;
+            const toLine = currentBeforeLine + (addDiff?.count ?? 0);
             const startAbove = Math.max(0, fromLine - 4);
             const endAbove = Math.max(0, fromLine - 1);
             const startBelow = toLine;
@@ -1085,9 +1096,7 @@ class EditReducer {
 
                     // IMPORTANT now lastLine indicates the last line before edit
                     // FIXME still a big problem that if the before edit version/snapshot of file is different, the old and new edits could not compare
-                    if (!(newDiffs[i + 1].added)) {
-                        lastLine += newDiffs[i + 1].count ?? 0;
-                    }
+                    maintainCurrentLine(newDiffs[i + 1]);
                     
                     ++i;
                 } else {
@@ -1098,14 +1107,11 @@ class EditReducer {
                 edit = createEdit(undefined, newDiff);
             }
 
+            maintainCurrentLine(newDiff);
+
             if (edit) {
                 pushOldEditMerge(edit);
             }
-
-            // now lastLine represents after-edit snapshot line number
-			if (!(newDiff.added)) {
-				lastLine += newDiff.count ?? 0;
-			}
         }
 
         // Rearrange the whole edit list,

@@ -56,7 +56,8 @@ export type RequestEdit = {
 
 export type EditWithTimestamp = {
     uriString: string; // the file path
-    line: number; // starting line
+    line: number;                   // starting line of the before version
+    currentStartLine: number;    // starting line of the after version, for alignment to current document
     rmLine: number; // number of removed lines
     rmText: string[]; // removed text, if no text removed, then empty list
     addLine: number; // number of added lines
