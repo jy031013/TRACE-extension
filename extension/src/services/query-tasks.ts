@@ -129,13 +129,22 @@ async function _predictLocationByTRACE() {
 
                     const correspondingInfoType = symbolInfo.type === 'def' ? 'ref' : 'def';
 
+                    // Always take the end position as name range, cause some result will look like this
+                    // [2025-03-22 09:11:33,507][__main__][DEBUG] trace-invoker output: 
+                    // {
+                    //     "type": "def&ref",
+                    //     "info": {
+                    //         "type": "ref",
+                    //         "name": "input_pipeline.create_classifier_dataset",
+                    //         "name_range_start": [
+
                     const lastEdit = requestEdits[requestEdits.length - 1];
                     const focusedLspFoundLocation = await globalEditInfoCollector.exportLspFoundLocationsForSymbolRange({
                         type: correspondingInfoType,
                         fileUri: vscode.Uri.file(requestEdits[requestEdits.length - 1].path),
                         symbolName: symbolInfo.name,
                         symbolRange: new vscode.Range(
-                            new vscode.Position(symbolInfo.name_range_start[0] + lastEdit.line, symbolInfo.name_range_start[1]),
+                            new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1]),
                             new vscode.Position(symbolInfo.name_range_end[0] + lastEdit.line, symbolInfo.name_range_end[1])
                         )
                     });
