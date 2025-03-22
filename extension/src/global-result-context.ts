@@ -419,7 +419,7 @@ export class QueryContext extends DisposableComponent {
     }
 
     updateTRACELocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
-        const confidenceThreshold = 0.9;
+        const confidenceThreshold = 0.8;
 
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {
@@ -431,24 +431,22 @@ export class QueryContext extends DisposableComponent {
                 const inline_confidences = loc.inline_confidences;
                 const inter_confidences = loc.inter_confidences;
 
-                // filter out low confidence
-                return (
-                    inlineLabels.every((label, index) => {
-                        if (label !== '<keep>' && inline_confidences[index] < confidenceThreshold) {
-                            return false;
-                        }
-                        return true;
-                    }) &&
-                    interLabels.every((label, index) => {
-                        if (label !== '<null>' && inter_confidences[index] < confidenceThreshold) {
-                            return false;
-                        }
-                        return true;
-                    })
-                );
-                        
+                inlineLabels.forEach((label, index) => {
+                    if (label !== '<keep>' && inline_confidences[index] < confidenceThreshold) {
+                        inlineLabels[index] = '<keep>';
+                    }
+                });
+                interLabels.forEach((label, index) => {
+                    if (label !== '<null>' && inter_confidences[index] < confidenceThreshold) {
+                        interLabels[index] = '<null>';
+                    }
+                });
 
-                // FIXME not filtering inter-line labels, and the threshold is not working
+                // filter out low confidence
+                return !(
+                    inlineLabels.every((label) => label === '<keep>') &&
+                    interLabels.every((label) => label === '<null>')
+                );
             });
 
             // do splitting
