@@ -364,6 +364,19 @@ export class DeterminedRenameRefactor implements Refactor {
     async resolveLocations(): Promise<FileEdits[]> {
         return this.determinedEdits;
     }
+    removeOriginalRename(uri: vscode.Uri, editStart: vscode.Position) {
+        const filteredResults: typeof this.determinedEdits = [];
+        
+        for (const [_uri, edits] of this.determinedEdits) {
+            if (_uri.toString() === uri.toString()) {
+                filteredResults.push([_uri, edits.filter((edit) => !edit.range.start.isEqual(editStart))]);
+            } else {
+                filteredResults.push([_uri, edits]);
+            }
+        }
+
+        this.determinedEdits = filteredResults;
+    }
 }
 
 export class QueryContext extends DisposableComponent {
@@ -512,6 +525,7 @@ export class QueryContext extends DisposableComponent {
     async applyRefactor() {
         await this.activeRefactorResult?.apply();
         await this.activeRefactorResult?.closeRefactorPreview();
+        await this.activeLocationResult?.dispose();
     }
 
     // NOTE must pre-process and split locations like this. Each location that the generator needs should contain only either 'inline' or 'inter' edit

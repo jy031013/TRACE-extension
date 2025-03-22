@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
 import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToTRACEInvoker, postRequestToTRACELocator, RequestTRACEInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseTRACELocator, ResponseTRACEInvoker, ResponseTRACEDefRefInfo } from './backend-requests';
+import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToTRACEInvoker, postRequestToTRACELocator, RequestTRACEInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseTRACELocator, ResponseTRACEInvoker, ResponseTRACEDefRefInfo, ResponseTRACEInvokerRenameInfo } from './backend-requests';
 import { statusBarItem } from '../ui/progress-indicator';
 import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
 import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
@@ -400,8 +400,27 @@ async function requestInvokerAndLocationByTRACE(
             // }
             
             if (cachedRenameOperation) {
-                const renameRefactor = createDeterminedRenameRefactor(cachedRenameOperation.identifier, cachedRenameOperation.ranges);
-                return ['rename', renameRefactor];
+                if (prevEdits.length === 0) {
+                    return;
+                }
+                const lastEditUri = vscode.Uri.file(prevEdits[prevEdits.length - 1].path);
+                const lastEditLine = prevEdits[prevEdits.length - 1].line;
+                
+                const filteringRenameInfo = invokerOutput.info as ResponseTRACEInvokerRenameInfo;
+                
+                if (filteringRenameInfo.added_identifiers.length > 0) {
+                    const primaryInfo = filteringRenameInfo.added_identifiers[0];
+                    const renameRefactor = createDeterminedRenameRefactor(primaryInfo.name, cachedRenameOperation.ranges);
+                    renameRefactor.removeOriginalRename(lastEditUri,
+                        new vscode.Position(
+                            primaryInfo.start[0] + lastEditLine,
+                            primaryInfo.start[1]
+                        )
+                    );
+
+                    return ['rename', renameRefactor];
+                }
+
             } else {
                 console.trace('no cached rename operation found, nothing is done');
             }

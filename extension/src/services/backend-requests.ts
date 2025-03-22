@@ -78,6 +78,21 @@ export type ResponseTRACELocator = {
     }
 };
 
+export type ResponseTRACEInvokerRenameInfoIdentifier = {
+    name: string;
+    type: string;
+    start: [number, number];
+    end: [number, number];
+    level: number;
+    identifier_type: string;
+}
+
+export type ResponseTRACEInvokerRenameInfo = {
+    deleted_identifiers: ResponseTRACEInvokerRenameInfoIdentifier[];
+    added_identifiers: ResponseTRACEInvokerRenameInfoIdentifier[];
+    map?: { [key: string]: string };
+}
+
 export type ResponseGenerator = string[];   // TODO need confidence here
 
 async function basicQuery(path: string, json_obj: any) {

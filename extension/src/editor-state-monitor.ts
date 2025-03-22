@@ -767,9 +767,9 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
             // Rename provider may throw an error from the promise
             try {
                 const rename = await this.debounceRenameQuery(uri, identifierRange.start);
-                if (rename && Array.isArray(rename) && rename.length > 0) {
+                if (rename && rename.size > 0) {
                     const entry = {
-                        allRenameRanges: rename as CodeRangesInFile[]
+                        allRenameRanges: convertWorkspaceEditToCodeRangesByFile(rename)
                     } as RenameInfo;
                     this.renameInfoMap.addRecord(uriString, line, header, entry);
                 }
@@ -841,12 +841,12 @@ class LanguageSyntaxRecorder implements vscode.Disposable {
 
     private debounceRenameQuery = debounced(async (uri: vscode.Uri, position: vscode.Position) => {
         try {
-            return await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider', uri, position, 'placeholder');
+            return await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider', uri, position, 'placeholder') as vscode.WorkspaceEdit;
         } catch (err) {
             // console.debug('Failed to execute rename provider:', err instanceof Error ? err.message : String(err));
             return undefined;
         } 
-    }, LanguageSyntaxRecorder.debounceTimeout);
+    }, 10);
 
     private debounceDiagnosticQuery = debounced(async (uri: vscode.Uri): Promise<[number, [vscode.Uri, vscode.Diagnostic[]][]]> => {
         const timestamp = Date.now();
@@ -1261,6 +1261,9 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
             && input.modified.scheme === 'file') || (input.textDiffs ? true : false);
     }
 
+    // For workspace-wide rename operation, showing a multi-file diff editor
+    isEditDiff ||= (vscode.window.tabGroups.activeTabGroup?.activeTab?.input as any)?.textDiffs !== undefined;
+
     if (vscode.workspace.getConfiguration("trace").get("predictLocationOnEditAccept") && globalEditorState.toPredictLocation) {
         setTimeout(() => {
             vscode.commands.executeCommand("trace.predictLocations");
@@ -1341,4 +1344,31 @@ function getLineTextWithLineEnding(doc: vscode.TextDocument, line: number) {
         ? doc.lineAt(line).range.end
         : doc.lineAt(line + 1).range.start;
     return doc.getText(new vscode.Range(rangeStart, rangeEnd));
+}
+
+function convertWorkspaceEditToCodeRangesByFile(e: vscode.WorkspaceEdit): CodeRangesInFile[] {
+    const textEdits = e.entries();
+    const codeRangesByFile: Map<string, vscode.Range[]> = new Map();
+
+    for (const te of textEdits) {
+        const [uri, edits] = te;
+        const uriString = uri.toString();
+
+        if (!codeRangesByFile.has(uriString)) {
+            codeRangesByFile.set(uriString, []);
+        }
+
+        const codeRangesInTheFile = codeRangesByFile.get(uriString) as vscode.Range[];
+        codeRangesInTheFile.push(...edits.map(edit => edit.range));
+    }
+
+    const result: CodeRangesInFile[] = [];
+    for (const [uriString, ranges] of codeRangesByFile.entries()) {
+        result.push({
+            uri: vscode.Uri.parse(uriString),
+            ranges
+        });
+    }
+
+    return result;
 }
