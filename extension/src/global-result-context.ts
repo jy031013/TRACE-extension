@@ -207,14 +207,18 @@ class SingleRefactorResult {
     }
 
     async apply() {
-        for (const fileEdit of this.fileEdits) {
-            // TODO how to perform refactor in background in VS Code
-            const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(fileEdit[0]), { preserveFocus: true });
-            editor.edit((editBuilder) => {
-                fileEdit[1].forEach((edit) => {
-                    editBuilder.replace(edit.range, edit.newText);
-                });
+        const workspaceEdit = new vscode.WorkspaceEdit();
+        for (const [uri, edits] of this.fileEdits) {
+            edits.forEach(edit => {
+            workspaceEdit.replace(uri, edit.range, edit.newText);
             });
+        }
+        await vscode.workspace.applyEdit(workspaceEdit, {
+            isRefactoring: true
+        });
+        // Save all files after applying edits
+        for (const [uri] of this.fileEdits) {
+            await vscode.workspace.save(uri);
         }
     }
 
@@ -227,7 +231,8 @@ class SingleRefactorResult {
             }
             const editor = editors.find((editor) => editor.document.uri.fsPath === fileEdit[0].fsPath);
             if (editor) {
-                editor.hide();
+                await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+                break;
             }
         }
     }
@@ -494,6 +499,7 @@ export class QueryContext extends DisposableComponent {
                 if (!uniqueLocations.some(
                     (l) => l.targetFilePath === loc.targetFilePath
                         && (l.atLines[0] <= loc.atLines[loc.atLines.length - 1] && l.atLines[l.atLines.length - 1] >= loc.atLines[0])
+                        || (l.editType === 'add' && loc.editType === 'add' && Math.abs(l.atLines[0] - loc.atLines[0]) <= 1)     // FIXME Here is just removing duplicated <insert> at the edge. This problem should be completely solved from backend model.
                 )) {
                     uniqueLocations.push(loc);
                 }

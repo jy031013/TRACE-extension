@@ -346,6 +346,11 @@ class EditSelector {
         await this.clearRelatedLocation();
         await this.safeClose();
         await vscode.workspace.save(vscode.Uri.file(this.path));
+        
+        let e;
+        if (e = vscode.window.activeTextEditor) {
+            e.selection = new vscode.Selection(e.selection.start, e.selection.start);
+        }
     }
 
     _getPathId() {

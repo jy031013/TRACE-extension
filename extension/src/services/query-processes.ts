@@ -454,9 +454,7 @@ export async function requestTRACELocator(
     };
     statusBarItem.setStatusQuerying("locator");
 
-    const locatorOutput = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Analyzing...' }, async () => {
-        return await postRequestToTRACELocator(locatorInput);
-    });
+    const locatorOutput = await postRequestToTRACELocator(locatorInput);
 
     return locatorOutput;
 }

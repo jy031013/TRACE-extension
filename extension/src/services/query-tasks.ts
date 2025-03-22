@@ -290,7 +290,7 @@ async function _predictEdit() {
             const coveredInLocation = locationsInFile?.find((location) => {
                 const startLine = location.code_window_start_line;
                 const endLine = location.code_window_start_line + location.inline_labels.length;
-                return atLines.every((line) => line >= startLine && line < endLine);
+                return atLines.every((line) => line >= startLine && line < endLine + 1);        // + 1 to preserve <insert> at the end
             });
 
             if (coveredInLocation) {
@@ -485,7 +485,7 @@ class GenerateEditCommand extends DisposableComponent {
             if (selector) {
                 await selector.acceptEdit();
             } else {
-                globalQueryContext.applyRefactor();
+                await globalQueryContext.applyRefactor();
             }
         }
         return vscode.Disposable.from(
