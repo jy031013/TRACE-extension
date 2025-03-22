@@ -149,7 +149,10 @@ def locator_interface(data):
     lang = data["language"]
     if type(lang) != str:
         raise ValueError("`language` should be a string.")
-    prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]
+    prev_edit_hunks = [construct_prev_edit_hunk(prev_edit, lang) for prev_edit in data["prevEdits"]]    # this will set all ids of previous edits to 0
+
+    for i, hunk in enumerate(prev_edit_hunks):
+        hunk['id'] = i
 
     locator, locator_tokenizer, device = load_model_with_cache("locator_model", load_locator)
 
