@@ -31,6 +31,8 @@ def get_sliding_window_for_lsp_locations(files: dict, lsp_locations: list[dict])
                 "start_line_idx": int,
             }
     """
+    DEFAULT_NUM_LINES_OF_WINDOW = 10
+
     sliding_windows = []
     for location in lsp_locations:
         file_path = location["file_path"]
@@ -40,14 +42,14 @@ def get_sliding_window_for_lsp_locations(files: dict, lsp_locations: list[dict])
         start_line_idx = location["start"]["line"]
         end_line_idx = location["end"]["line"]
         location_range = end_line_idx - start_line_idx + 1
-        multiple = math.ceil(location_range / 8)
-        prefix_context_length = (8*multiple  - location_range) // 2
-        suffix_context_length = 8*multiple - location_range - prefix_context_length
+        multiple = math.ceil(location_range / DEFAULT_NUM_LINES_OF_WINDOW)
+        prefix_context_length = (DEFAULT_NUM_LINES_OF_WINDOW*multiple  - location_range) // 2
+        suffix_context_length = DEFAULT_NUM_LINES_OF_WINDOW*multiple - location_range - prefix_context_length
 
         window_start_line_idx = max(0, start_line_idx - prefix_context_length)
         window_end_line_idx = min(len(files[file_path]) - 1, end_line_idx + suffix_context_length) + 1
-        for i in range(window_start_line_idx, window_end_line_idx, 8):
-            code_window = files[file_path][i:i+8]
+        for i in range(window_start_line_idx, window_end_line_idx, DEFAULT_NUM_LINES_OF_WINDOW):
+            code_window = files[file_path][i:i+DEFAULT_NUM_LINES_OF_WINDOW]
             sliding_windows.append({
                 "code_window": code_window,
                 "file_path": file_path,
