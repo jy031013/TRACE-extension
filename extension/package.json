@@ -27,7 +27,7 @@
         "properties": {
           "trace.queryURL": {
             "type": "string",
-            "default": "http://localhost:5003",
+            "default": "http://localhost:5004",
             "description": "The backend URL to send query request to."
           },
           "trace.predictLocationOnEditAccept": {

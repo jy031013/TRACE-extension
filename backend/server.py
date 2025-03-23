@@ -4,7 +4,7 @@ import logging
 import configparser
 
 from waitress import serve
-from flask import Flask, config, request, make_response
+from flask import Flask, config, request, make_response, jsonify
 
 from trace.mol_service import invoker_interface, locator_interface, generator_interface
 from trace.logging import setup_default_logger
@@ -66,6 +66,13 @@ def post_statistics():
 
     return make_plain_text_response('ok')
 
+@app.route('/check', methods=['GET'])
+def check():
+    return jsonify({
+        "status": "success",
+        "message": "Backend connection is valid!"
+    }), 200
+    
 if __name__ == '__main__':
     # app.run(host='0.0.0.0', port=5001, debug=True)
     config = configparser.ConfigParser()

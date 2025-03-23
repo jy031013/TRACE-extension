@@ -6,6 +6,7 @@ import { globalLocationViewManager } from './views/location-tree-view';
 import { registerBasicCommands, registerTopTaskCommands } from './comands';
 import { statusBarItem } from './ui/progress-indicator';
 import { modelServerProcess } from './services/backend-requests';
+import { connection_notiy } from './connection-notify';
 
 function activate(context: vscode.ExtensionContext) {
 	console.log('Extension activated with arguments:', process.argv);
@@ -26,7 +27,9 @@ function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		new FileStateMonitor(),
 		);
-				
+	
+	connection_notiy(context);	
+
 	updateEditorState(vscode.window.activeTextEditor);
 }
 
