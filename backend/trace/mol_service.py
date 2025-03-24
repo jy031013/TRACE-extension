@@ -111,7 +111,7 @@ def invoker_interface(data):
             if clones != []:
                 data["lspServiceName"] = "clone"
                 data["lspFoundLocations"] = clones
-                print(f"+++ Invoker prediction: normal, but code clone detector found some location, sending to Locator")
+                print(f"+++ Invoker prediction: normal, but code clone detector found {len(clones)} locations, sending to Locator")
                 return locator_interface(data)
     
     print(f"+++ Invoker prediction: normal, Locator scanning all files.")

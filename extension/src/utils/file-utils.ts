@@ -345,9 +345,11 @@ export async function readMostRelatedFiles() {
         globFromPath = workspaceRoot;
     }
 
-    // const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
+    // NOTE this seriously needs cache, cause it's very slow. And also need range limitation of files to be collected
+    // const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   
     
     // DEBUG
+    console.warn(`file-utils.ts - readMostRelatedFiles(): Debugging code logic may impact real usage`)
     const fileContents: [string, string][] = [];
     const specialRelativePaths = [
         'extensions-builtin/ScuNET/scripts',

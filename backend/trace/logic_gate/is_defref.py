@@ -18,8 +18,6 @@ def traverse_python_tree(node, results):
         # get function name range
         range_start = node.child_by_field_name('name').start_point
         range_end = node.child_by_field_name('name').end_point
-        if function_name == '__init__': # args of __init__ belongs to class definition name
-            return results
         parameters = node.child_by_field_name('parameters')
         args = []
         for param in parameters.children:
