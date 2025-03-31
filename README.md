@@ -2,9 +2,24 @@
 
 TRACE is a Visual Studio Code extension that features automatic code edit recommendations.
 
-## 🚀 Demo (TODO)
+# 📑 Content 
+- [Demo](#-demo)
+- [UI](#-ui)
+- [Usage](#-usage)
+- [Deployment](#-deployment)
+- [Issues](#-issues)
 
-## ✨ UI (TODO, better put UI and Usage into a separate `.md`)
+## 🚀 Demo
+> [!NOTE]
+> Please click the image to watch the demo video on YouTube.
+
+<div align="center">
+   <a href="https://youtu.be/qfftiPzf5b4">
+   <img src="./extension/assets/video_cover.png" width="600" />
+   </a>
+</div>
+
+## ✨ UI
 
 ### Overview
 
