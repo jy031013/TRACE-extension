@@ -11,17 +11,17 @@ from .locator import load_model_locator, predict_sliding_windows
 from .generator import load_model_generator, generate_edit
 
 def load_invoker(checkpoint_path):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     invoker_model, invoker_tokenizer = load_model_invoker(checkpoint_path, device)
     return invoker_model, invoker_tokenizer, device
 
 def load_locator(checkpoint_path):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     locator_model, locator_tokenizer = load_model_locator(checkpoint_path, device)
     return locator_model, locator_tokenizer, device
 
 def load_generator(checkpoint_path):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     generator_model, generator_tokenizer = load_model_generator(checkpoint_path, device)
     return generator_model, generator_tokenizer, device
 

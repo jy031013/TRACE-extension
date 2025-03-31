@@ -18,9 +18,6 @@ MODEL_CLASSES = {'codet5': (T5Config, T5ForConditionalGeneration, RobertaTokeniz
 CONTEXT_LENGTH = 5
 MODEL_ROLE = "generator"
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
-
-
 def load_model_generator(model_path: str, device: torch.device):
     config_class, model_class, tokenizer_class = MODEL_CLASSES["codet5"]
       
@@ -42,7 +39,7 @@ def load_model_generator(model_path: str, device: torch.device):
 
     model = model_class.from_pretrained("salesforce/codet5-base")
     model.encoder.embed_tokens = new_encoder_embedding
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     # below type cannot be correctly parsed by pyright
     model.to(device)     # type: ignore
 

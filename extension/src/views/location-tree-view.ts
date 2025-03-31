@@ -247,7 +247,17 @@ class ModItem extends vscode.TreeItem {
     editType: EditType;
     text: string;
 
-    constructor(label: string, collapsibleState: TreeItemCollapsibleState, fileItem: FileItem, fromLine: number, toLine: number, lineContent: string, editType: EditType, isRefactor: boolean = true, refactorEdits: UniqueRefactorEditsSet | undefined = undefined) {
+    constructor(
+        label: string,
+        collapsibleState: TreeItemCollapsibleState,
+        fileItem: FileItem,
+        fromLine: number,
+        toLine: number,
+        lineContent: string,
+        editType: EditType,
+        isRefactor: boolean = true,
+        refactorEdits: UniqueRefactorEditsSet | undefined = undefined
+    ) {
         super(label, collapsibleState);
         this.collapsibleState = collapsibleState;
         this.fileItem = fileItem;
@@ -259,6 +269,7 @@ class ModItem extends vscode.TreeItem {
 
         this.tooltip = `Line ${this.fromLine + 1}`; // match real line numbers in the gutter
         this.description = this.text;
+
         if (isRefactor && refactorEdits) {
             this.command = {
                 command: 'trace.openRefactorPreview',
@@ -284,7 +295,6 @@ class ModItem extends vscode.TreeItem {
         };
         this.label = this.getLabel();
     }
-
 
     getIconFileName() {
         switch (this.editType) {

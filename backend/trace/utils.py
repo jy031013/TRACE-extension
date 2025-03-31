@@ -1,4 +1,5 @@
 import math
+import torch
 from .rich_semantic import finer_grain_window
 
 def get_sliding_window_for_lsp_locations(files: dict, lsp_locations: list[dict]):
@@ -187,3 +188,11 @@ def construct_prev_edit_hunk(edit: dict, lang: str):
     # print("Hunk:")
     # print(json.dumps(hunk, indent = 4))
     return hunk
+
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")

@@ -197,7 +197,7 @@ def load_model_locator(model_path,device):
                     null_token_id=locator_tokenizer.convert_tokens_to_ids("<null>"),
                     insert_token_id=locator_tokenizer.convert_tokens_to_ids("<insert>"),
                     block_split_token_id=locator_tokenizer.convert_tokens_to_ids("<block-split>"))
-    locator.load_state_dict(torch.load(model_path, map_location = device), strict = False)
+    locator.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     locator.to(device)
     return locator, locator_tokenizer
 
