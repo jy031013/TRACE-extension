@@ -1,6 +1,8 @@
 # ✍️ TRACE
 
-TRACE is a Visual Studio Code extension that features automatic code edit recommendations.
+TRACE is a Visual Studio Code extension that features automatic code edit recommendations, proposed by paper "Learning Project-wise Subsequent Code Edits via Interleaving Neural-based Induction and Tool-based Deduction" by Chenyan Liu, Yun Lin, Yuhuan Huang, Jiaxin Chang, Binhang Qi, Bo Jiang, Zhiyong Huang, and Jin Song Dong. Presented at ASE'25.
+
+If you are interested in the training and inference of the backend models, please refer to [TRACE](https://github.com/code-philia/TRACE) repository.
 
 ## 🚀 UI Demo
 > [!NOTE]
