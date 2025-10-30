@@ -1301,8 +1301,8 @@ export function updateEditorState(editor: vscode.TextEditor | undefined) {
     if (globalEditorState.inDiffEditor) {
         const input = vscode.window.tabGroups.activeTabGroup?.activeTab?.input as any;
         isEditDiff = ((input instanceof vscode.TabInputTextDiff)
-            && input.original.scheme === 'temp'
-            && input.modified.scheme === 'file') || (input.textDiffs ? true : false);
+            && input.original.scheme === 'file'
+            && input.modified.scheme === 'temp') || (input.textDiffs ? true : false);
     }
 
     // For workspace-wide rename operation, showing a multi-file diff editor
