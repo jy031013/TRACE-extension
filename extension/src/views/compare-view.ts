@@ -205,6 +205,28 @@ class EditSelector {
      * Find the editor where the document is open then change its 
      * @param {*} replacement 
      */
+    private _generateModifiedContent(replacement: string): string {
+        const x = this.originalContent.match(/\r?\n|\n/);
+        const lineBreak = x?.at(0) ?? defaultLineBreak;
+        
+        const _lines = this.originalContent.split(lineBreak);
+        const isAdd = this.isAdd || _lines.some(line => line.startsWith('<add>'));
+        const lines = _lines.map(line => line.replace(/^<add>/, ''));
+        
+        const numLines = _lines.length + 1;
+        const fromLine = Math.max(0, this.fromLine);
+        // If change type is "add", simply insert replacement content at the first line 
+        const toLine = isAdd ? fromLine : Math.min(this.toLine, numLines);
+        
+        const modifiedText = (lines.slice(0, fromLine)).join(lineBreak)
+            + (fromLine > 0 ? lineBreak : '')
+            + replacement
+            // + (toLine < numLines ? lineBreak : '')   // there is already a linebreak at the end of the replacement now
+            + (lines.slice(toLine, numLines)).join(lineBreak);
+        
+        return modifiedText;
+    }
+
     async _performMod(replacement: string) {
         const x = this.originalContent.match(/\r?\n|\n/);
         const lineBreak = x?.at(0) ?? defaultLineBreak;
@@ -277,15 +299,22 @@ class EditSelector {
 
     async _showDiffView() {
         // Open a diff view to compare the original and the modified document
-        // TODO no longer show index of suggestion here, but as a CodeLens over the line of edit
+        // Use the original file URI (not tempUri) as the left side, and modifiedUri as the right side
+        const originalUri = vscode.Uri.file(this.path);
+        
+        // Clear any existing diff tab selectors for this file
+        const existingKeys = Array.from(diffTabSelectors.keys()).filter(key => 
+            key.includes(path.basename(this.path))
+        );
+        existingKeys.forEach(key => diffTabSelectors.delete(key));
+        
         await vscode.commands.executeCommand('vscode.diff',
-            this.tempUri,
+            originalUri,
             this.modifiedUri,
             `EDIT: ${path.basename(this.path)}`
         );
 
-        // const tabGroups = vscode.window.tabGroups;
-        // const activeTab = tabGroups.activeTabGroup.activeTab;
+        // Register the new diff tab selector
         diffTabSelectors.set(this.modifiedUri.toString(), this);
         // let removeSelectorEvent = null;
 
@@ -305,24 +334,41 @@ class EditSelector {
     }
 
     async editDocumentAndShowDiff() {
-        await this._performMod(this.edits[this.modAt]);
-        // if (globalEditorState.inDiffEditor) {     // refresh existed diff editor
-        //     await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-        // }
+        // Create modified content with the current edit
+        const modifiedContent = this._generateModifiedContent(this.edits[this.modAt]);
+        
+        // Create temporary file with modified content
+        const tempFileName = `edit-${Date.now()}-${path.basename(this.path)}`;
+        this.modifiedUri = await this.tempWrite(`/${tempFileName}`, modifiedContent);
+        
+        // Register the temp file with the manager
+        globalTempFileManager.setCurrentTempFile(this.modifiedUri, vscode.Uri.file(this.path));
+        
         await this._showDiffView();
     }
 
     async switchEdit(offset = 1) {
         const modAt = (this.modAt + offset + this.edits.length) % this.edits.length;
         this.setSelectedModification(modAt);
-        await this.editDocumentAndShowDiff();
+        
+        // Generate new modified content with the selected edit
+        const modifiedContent = this._generateModifiedContent(this.edits[this.modAt]);
+        
+        // Update the temporary file content
+        const tempFileName = `edit-${Date.now()}-${path.basename(this.path)}`;
+        this.modifiedUri = await this.tempWrite(`/${tempFileName}`, modifiedContent);
+        
+        // Update the temp file manager
+        globalTempFileManager.setCurrentTempFile(this.modifiedUri, vscode.Uri.file(this.path));
+        
+        await this._showDiffView();
     }
 
     async clearEdit() {
-        // await vscode.commands.executeCommand('undo');
+        // Clean up temporary files and close diff editors
+        await globalTempFileManager.cleanupTempFileAndEditors();
         await this.safeClose();
-        await this._replaceDocument(this.originalContent, true);
-        // await this.clearRelatedLocation();
+        // Note: We don't restore the original content since we never modified it
     }
 
     async clearRelatedLocation() {
@@ -343,9 +389,37 @@ class EditSelector {
     }
 
     async acceptEdit() {
+        // Get the current temporary file content
+        const currentTempFile = globalTempFileManager.getCurrentTempFile();
+        if (currentTempFile) {
+            try {
+                // Read the modified content from the temporary file
+                const tempContent = await vscode.workspace.fs.readFile(currentTempFile);
+                const modifiedContent = new util.TextDecoder().decode(tempContent);
+                
+                // Apply the changes to the original file
+                const originalUri = vscode.Uri.file(this.path);
+                await vscode.workspace.fs.writeFile(originalUri, new util.TextEncoder().encode(modifiedContent));
+                
+                // Clean up temporary files
+                await globalTempFileManager.cleanupTempFileAndEditors();
+                
+                // Open the original file to show the applied changes
+                const originalDoc = await vscode.workspace.openTextDocument(originalUri);
+                await vscode.window.showTextDocument(originalDoc, {
+                    preview: false,
+                    viewColumn: vscode.ViewColumn.Active
+                });
+                
+                vscode.window.showInformationMessage('Edit suggestion accepted ✅');
+            } catch (error) {
+                vscode.window.showErrorMessage('Failed to apply edit: ' + error);
+                return;
+            }
+        }
+        
         await this.clearRelatedLocation();
         await this.safeClose();
-        await vscode.workspace.save(vscode.Uri.file(this.path));
         
         let e;
         if (e = vscode.window.activeTextEditor) {
@@ -365,9 +439,10 @@ class EditSelector {
     }
 
     matchTab(tab: vscode.Tab | undefined) {
+        const originalUri = vscode.Uri.file(this.path);
         return tab
             && tab.input instanceof vscode.TabInputTextDiff
-            && tab.input.original.toString() === this.tempUri?.toString()
+            && tab.input.original.toString() === originalUri.toString()
             && tab.input.modified.toString() === this.modifiedUri.toString();
     }
 
@@ -434,11 +509,83 @@ class EditSelector {
 //     }
 // }
 
+// Global temporary file manager
+class TempFileManager {
+    private currentTempFile: vscode.Uri | null = null;
+    private tempToOriginalMap: Map<string, vscode.Uri> = new Map();
+    private tempToHunkMap: Map<string, any> = new Map();
+
+    async cleanupTempFileAndEditors() {
+        console.log('Cleaning up all temporary files and editors...');
+        
+        // First, close all diff tabs that use temporary files
+        const allTabGroups = vscode.window.tabGroups.all;
+        const tabsToClose: vscode.Tab[] = [];
+        
+        for (const tabGroup of allTabGroups) {
+            for (const tab of tabGroup.tabs) {
+                if (tab.input instanceof vscode.TabInputTextDiff) {
+                    // Check if either side uses temp scheme
+                    if (tab.input.original.scheme === 'temp' || tab.input.modified.scheme === 'temp') {
+                        tabsToClose.push(tab);
+                    }
+                }
+            }
+        }
+        
+        // Close all identified tabs
+        for (const tab of tabsToClose) {
+            try {
+                await vscode.window.tabGroups.close(tab);
+            } catch (e) {
+                console.log('Failed to close diff tab:', e);
+            }
+        }
+        
+        // Clean up all temp files from provider
+        try {
+            compareTempFileSystemProvider.tempFiles.clear();
+        } catch (e) {
+            console.log('Failed to clear temp files:', e);
+        }
+        
+        // Clean up all mappings
+        this.tempToOriginalMap.clear();
+        this.tempToHunkMap.clear();
+        this.currentTempFile = null;
+        
+        console.log('Cleanup completed');
+    }
+
+    setCurrentTempFile(tempUri: vscode.Uri, originalUri: vscode.Uri, hunk?: any) {
+        this.currentTempFile = tempUri;
+        this.tempToOriginalMap.set(tempUri.toString(), originalUri);
+        if (hunk) {
+            this.tempToHunkMap.set(tempUri.toString(), hunk);
+        }
+    }
+
+    getCurrentTempFile(): vscode.Uri | null {
+        return this.currentTempFile;
+    }
+
+    getOriginalUri(tempUri: vscode.Uri): vscode.Uri | undefined {
+        return this.tempToOriginalMap.get(tempUri.toString());
+    }
+
+    getHunk(tempUri: vscode.Uri): any {
+        return this.tempToHunkMap.get(tempUri.toString());
+    }
+}
+
+const globalTempFileManager = new TempFileManager();
+
 export {
     EditSelector,
     CompareTempFileProvider,
     diffTabSelectors,
     compareTempFileSystemProvider,
     tempWrite,
+    globalTempFileManager,
     // DiffTabCodelensProvider
 };

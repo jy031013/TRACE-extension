@@ -4,7 +4,7 @@ import { globalQueryContext, globalEditLock } from '../global-result-context';
 import { globalEditorState } from '../global-workspace-context';
 import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByTRACE, requestTRACELocator } from './query-processes';
 import { DisposableComponent } from '../utils/base-component';
-import { EditSelector, diffTabSelectors, tempWrite } from '../views/compare-view';
+import { EditSelector, diffTabSelectors, tempWrite, globalTempFileManager } from '../views/compare-view';
 import { statusBarItem } from '../ui/progress-indicator';
 import { EditType, EditWithTimestamp, FileAsHunks, RequestEdit, SimpleEdit } from '../utils/base-types';
 import { splitLines } from '../utils/utils';
@@ -232,6 +232,8 @@ async function predictEdit() {
 }
 
 async function _predictEdit() {
+    await globalTempFileManager.cleanupTempFileAndEditors();
+    
     const commitMessage = await globalQueryContext.querySettings.requireCommitMessage();
     if (commitMessage === undefined) {
         statisticsCollector.addLog("action", "trace.generateEdits quited for disposing commit message input");
