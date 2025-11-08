@@ -2,28 +2,15 @@ import os
 from tree_sitter import Language, Parser
 from typing import Literal, TypedDict, List, Dict
 
-def parse(code: str, language: str):
-    assert language in ["go", "javascript", "typescript", "python", "java"]
-    if not os.path.exists("tree-sitter/build/my-languages.so"):
-        Language.build_library(
-            # Store the library in the `build` directory
-            "tree-sitter/build/my-languages.so",
+from trace.rich_semantic import ALLOWED_LANGUAGE_LIST, PARSERS
 
-            # Include one or more languages
-            [
-                "tree-sitter/tree-sitter-go",
-                "tree-sitter/tree-sitter-javascript",
-                "tree-sitter/tree-sitter-typescript/typescript",
-                "tree-sitter/tree-sitter-python",
-                "tree-sitter/tree-sitter-java",
-            ]
-        )
-    parser = Parser()
-    parser.set_language(Language("tree-sitter/build/my-languages.so", language))
-    tree = parser.parse(bytes(code, "utf8"))
+def parse(code: str, language: str):
+    assert language in ALLOWED_LANGUAGE_LIST
+    tree = PARSERS[language].parse(bytes(code, "utf8"))
     return tree
 
 def parse_identifier(code: str, lang):
+    assert lang in ALLOWED_LANGUAGE_LIST
     def traverse_tree(node, source_code, results, lang, level=0):
         if len(node.children) == 0 and "identifier" in node.type:
             next_char_line = node.end_point[0]
@@ -61,13 +48,8 @@ def parse_identifier(code: str, lang):
             
         return results
     
-    LANGUAGE = Language("tree-sitter/build/my-languages.so", lang)
-
-    parser = Parser()
-    parser.set_language(LANGUAGE)
-    
     encoded_code = code.encode("utf-8")
-    tree = parser.parse(encoded_code)
+    tree = PARSERS[lang].parse(encoded_code)
     root_node = tree.root_node
 
     return traverse_tree(root_node, code, [], lang)
