@@ -1,27 +1,41 @@
 import os
 from tree_sitter import Language, Parser
 
-# FIXME use a better way to get correct path
-os.chdir(os.path.dirname(__file__))
+ALLOWED_LANGUAGE_LIST = ["go", "javascript", "typescript", "python", "java"]
 
-def parse(code, language):
-    assert language in ["go", "javascript", "typescript", "python", "java"]
-    if not os.path.exists("tree-sitter/build/my-languages.so"):
-        Language.build_library(
-            # Store the library in the `build` directory
-            "tree-sitter/build/my-languages.so",
+def get_file_relative_path(file_path):
+    return os.path.join(os.path.dirname(__file__), file_path)
 
-            # Include one or more languages
-            [
+PARSER_LIBRARY_PATH = get_file_relative_path("tree-sitter/build/my-languages.so")
+PARSER_LANGUAGE_PATHS = list(map(get_file_relative_path, [
                 "tree-sitter/tree-sitter-go",
                 "tree-sitter/tree-sitter-javascript",
                 "tree-sitter/tree-sitter-typescript/typescript",
                 "tree-sitter/tree-sitter-python",
                 "tree-sitter/tree-sitter-java",
-            ]
+            ]))
+
+def initialize_parser():
+    if not os.path.exists(PARSER_LIBRARY_PATH):
+        Language.build_library(
+            # Store the library in the `build` directory
+            PARSER_LIBRARY_PATH,
+
+            # Include one or more languages
+            PARSER_LANGUAGE_PATHS
         )
-    parser = Parser()
-    parser.set_language(Language("tree-sitter/build/my-languages.so", language))
+    parsers = {}
+    for lang in ALLOWED_LANGUAGE_LIST:
+        parser = Parser()
+        parser.set_language(Language(PARSER_LIBRARY_PATH, lang))
+        parsers[lang] = parser
+    return parsers
+
+PARSERS = initialize_parser()
+
+def parse(code, language):
+    assert language in ALLOWED_LANGUAGE_LIST
+    parser = PARSERS[language]
     tree = parser.parse(bytes(code, "utf8"))
     return tree
 

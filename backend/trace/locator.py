@@ -267,9 +267,6 @@ def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_
 
         if sliding_window["file_path"] not in locator_response:
             locator_response[sliding_window["file_path"]] = []
-
-        # if ("keras/layers/core.py" in sliding_window["file_path"] or "keras\\layers\\core.py" in sliding_window["file_path"]) and sliding_window["start_line_idx"] > 200:
-        #         continue
             
         locator_response[sliding_window["file_path"]].append({
             "code_window_start_line": sliding_window["start_line_idx"],

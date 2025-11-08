@@ -67,7 +67,7 @@ def load_model_invoker(invoker_file, device):
     invoker.to(device)
     return invoker, tokenizer
 
-def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang):
+def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, gate_info, device, lang):
     """
     Func:
         Given a list of prior edit hunks, ask the expert to decide which LSP service to use
@@ -80,10 +80,22 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
     
     # Split the hunk into blocks
     code_blocks = finer_grain_window(prior_edit_hunk_set[0]['before_edit'], prior_edit_hunk_set[0]['after_edit'], lang)
+    code_blocks = count_lines_for_blocks(code_blocks)
 
     input_seqs = []
     common_seq = ""
 
+    # Get the exact location of edit compositon from prev edit
+    exact_lines = []
+    if prior_edit_type in ["variable_rename", "function_rename"]:
+        for deleted_identifier in gate_info["deleted_identifiers"]:
+            exact_lines.append(deleted_identifier["start"][0])
+            exact_lines.append(deleted_identifier["end"][0])
+    elif prior_edit_type == "def&ref":
+        exact_lines.append(gate_info["name_range_start"][0])
+        exact_lines.append(gate_info["name_range_end"][0])
+    exact_lines = list(set(exact_lines))
+    
     # Construct input sequences of each block
     for previous_edit in prior_edit_hunk_set[1:]:
         common_seq += "<previous_edit>"
@@ -92,23 +104,25 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         common_seq += "</previous_edit>"
     if prior_edit_type != "clone":
         for block in code_blocks:
-            if block["before"] == [] or block["after"] == []:
+            if not (set(block["before_at_line"]) & set(exact_lines)):
                 continue
-            input_seq = f"<last_edit>"
+            if block["before"] == [] or block["after"] == []: # if this block is insert or delete, there's no way to be a rename edit or def&ref edit
+                continue
+            input_seq = f"<{prior_edit_type}><last_edit>"
             input_seq += f"<before>{''.join(block['before'])}</before>"
             input_seq += f"<after>{''.join(block['after'])}</after>"
             input_seq += "</last_edit>"
             input_seq += common_seq
             input_seqs.append(input_seq)
     else:
-        input_seq = f"<last_edit>"
+        input_seq = f"<{prior_edit_type}><last_edit>"
         input_seq += f"<before>{''.join(prior_edit_hunk_set[0]['before_edit'])}</before>"
         input_seq += f"<after>{''.join(prior_edit_hunk_set[0]['after_edit'])}</after>"
         input_seq += "</last_edit>"
         input_seq += common_seq
         input_seqs.append(input_seq)
     
-    print(f"Input sequences:\n{json.dumps(input_seqs, indent=4)}")
+    print(f"+++ Input sequences:\n{json.dumps(input_seqs, indent=4)}")
     if input_seqs == []:
         return "normal", None
     
@@ -132,8 +146,10 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
 
     results = []
     for prediction in binary_predictions:
-        if prediction[0] == 1 or prediction[1] == 1:
-            results.append("rename")
+        if prediction[0] == 1:
+            results.append("variable_rename")
+        elif prediction[1] == 1:
+            results.append("function_rename")
         elif prediction[2] == 1:
             results.append("def&ref")
         elif prediction[3] == 1:
@@ -144,3 +160,21 @@ def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, d
         return "normal"
     else:
         return results[0]
+
+def count_lines_for_blocks(blocks: list):
+    """
+    Func:
+        Count line numbers for each code block
+    Return:
+        list: updated blocks with line number info
+    """
+    before_line_count = 0
+    after_line_count = 0
+    for block in blocks:
+        block["before_at_line"] = [i for i in range(before_line_count, before_line_count + len(block["before"]))]
+        block["after_at_line"] = [i for i in range(after_line_count, after_line_count + len(block["after"]))]
+        
+        before_line_count += len(block["before"])
+        after_line_count += len(block["after"])
+
+    return blocks

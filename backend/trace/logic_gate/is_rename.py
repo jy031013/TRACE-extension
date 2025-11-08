@@ -332,7 +332,7 @@ def is_rename_edit(code_before: str, code_after: str, lang: str):
         "map": {}
     }
 
-    for mp in merged_positions[:1]:
+    for mp in merged_positions:
         unit_before = "".join([code_before_in_line[line_idx] for line_idx in mp[0]])
         unit_after = "".join([code_after_in_line[line_idx] for line_idx in mp[1]])
 

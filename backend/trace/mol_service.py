@@ -78,7 +78,7 @@ def invoker_interface(data):
 
     ### STARTING PHASE: judges the type of primitive edit
     # (NOTE logic gate only discriminates the last edit!)
-    # (prior_edit_type = "rename" | "def&ref" | "clone" | "normal")
+    # (prior_edit_type = "variable_rename" | "function_rename" | "def&ref" | "clone" | "normal")
     # (gate_info contains refactor information like rename) 
     # Due to code logic, clone, diagnose can be not predicted by invoker
     if len(prev_edit_hunks) == 0:
@@ -86,13 +86,16 @@ def invoker_interface(data):
         return locator_interface(data)
 
     prior_edit_type, gate_info = logic_gate(prev_edit_hunks, lang)
+    print(f"+++ Static logic gate prediction: {prior_edit_type}, gate_info: {gate_info}")
     
     if prior_edit_type != "normal":
         ### SECOND PHASE: discriminate the type of on-going edits
-        service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, device, lang)
+        service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, gate_info, device, lang)
         if service == prior_edit_type:
             print(f"+++ Invoker prediction: {service}, sending LSP request information backto frontend LSP.")
-            assert service in ["rename", "def&ref"]
+            assert service in ["variable_rename", "function_rename", "def&ref"]
+            if service in ["variable_rename", "function_rename"]:
+                service = "rename" # no need for frontend to distinguish variable/function rename
             return {
                 "type": service,
                 "info": gate_info

@@ -34,7 +34,12 @@ def logic_gate(prev_edit_hunks: list, lang: str):
 
     rename_result = is_rename_edit(code_before, code_after, lang)
     if rename_result is not False:
-        return "rename", rename_result
+        if rename_result["deleted_identifiers"][0]["identifier_type"] == "function":
+            return "function_rename", rename_result
+        elif rename_result["deleted_identifiers"][0]["identifier_type"] == "variable":
+            return "variable_rename", rename_result
+        else:
+            raise NotImplementedError("Unknown identifier type in rename detection.")
 
     refdef_result = is_defref_edit(code_before, code_after, lang)
     if refdef_result is not False:
