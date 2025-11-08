@@ -56,6 +56,20 @@
 			}
 		},
 		{
+			"type": "shell",
+			"label": "reset-example-5",
+			"command": "git reset --hard && git checkout 0ab2ddf^1",
+			"options": {
+				"cwd": "${workspaceFolder}/../navedit-extension-test-folder/trace_demo"
+			},
+			"presentation": {
+				"reveal": "silent",
+				"revealProblems": "onProblem",
+				"close": true
+			},
+			"dependsOn": ["npm: watch"]
+		},
+		{
 			"type": "npm",
 			"script": "watch",
 			"problemMatcher": [{

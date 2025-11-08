@@ -71,6 +71,20 @@
 			"preLaunchTask": "reset-example-4"
 		},
 		{
+			"name": "Run Example 5: trace_demo",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"${workspaceFolder}/../navedit-extension-test-folder/trace_demo"
+			],
+			"outFiles": [
+				"${workspaceFolder}/extension/out/**/*.js"
+			],
+			"cwd": "${workspaceFolder}/extension/",
+			"preLaunchTask": "reset-example-5"
+		},
+		{
 			"name": "Run Extension",
 			"type": "extensionHost",
 			"request": "launch",
@@ -86,7 +100,7 @@
 			"preLaunchTask": "npm: watch"
 		},
 		{
-			"name": "Python server debugging",
+			"name": "Debug Backend Server",
 			"type": "debugpy",
 			"request": "launch",
 			"program": "${workspaceFolder}/backend/server.py",
