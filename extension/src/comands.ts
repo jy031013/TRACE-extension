@@ -1,10 +1,10 @@
 import vscode from "vscode";
-import { PredictLocationCommand, GenerateEditCommand } from "./services/query-tasks";
-import { limitNum } from "./utils/utils";
 import { globalEditInfoCollector } from "./editor-state-monitor";
-import { FileEdits } from "./utils/base-types";
-import { createVirtualModifiedFileUri } from "./views/compare-view";
+import { GenerateEditCommand, PredictLocationCommand } from "./services/query-tasks";
 import { statisticsCollector } from "./statistics";
+import { FileEdits } from "./utils/base-types";
+import { limitNum } from "./utils/utils";
+import { createVirtualModifiedFileUri } from "./views/compare-view";
 // import { addUserStatItem } from "./global-context";
 
 export function registerBasicCommands() {
@@ -133,10 +133,11 @@ async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet) {
 		const modifiedProxyFileUri = await createVirtualModifiedFileUri(originalFileUri, modifiedContent);
 		changes.push([originalFileUri, modifiedProxyFileUri]);
 	}
-	const options: OpenMultiFileDiffEditorOptions = {
-		title: 'Preview',
-		multiDiffSourceUri: vscode.Uri.parse(`temp-id:/${refactorEditSet.id}`), // just used as a unique identifier
-		resources: changes.map(([originalUri, modifiedUri]) => ({ originalUri, modifiedUri }))
-	};
-	vscode.commands.executeCommand(internalOpenMultiDiffEditorCommand, options);
+	// const options: OpenMultiFileDiffEditorOptions = {
+	// 	title: 'Preview',
+	// 	multiDiffSourceUri: vscode.Uri.parse(`temp-id:/${refactorEditSet.id}`), // just used as a unique identifier
+	// 	resources: changes.map(([originalUri, modifiedUri]) => ({ originalUri, modifiedUri }))
+	// };
+	// vscode.commands.executeCommand(internalOpenMultiDiffEditorCommand, options);
+	vscode.commands.executeCommand('vscode.diff', changes[0][0], changes[0][1], 'Refactor Preview');
 }

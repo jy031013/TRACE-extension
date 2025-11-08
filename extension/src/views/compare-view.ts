@@ -1,11 +1,10 @@
-import vscode from 'vscode';
 import crypto from 'crypto';
-import util from 'util';
 import path from 'path';
-import { DisposableComponent } from '../utils/base-component';
+import util from 'util';
+import vscode from 'vscode';
 import { defaultLineBreak, globalQueryContext } from '../global-result-context';
-import { globalEditorState } from '../global-workspace-context';
 import { statisticsCollector } from '../statistics';
+import { DisposableComponent } from '../utils/base-component';
 
 class BaseTempFileProvider extends DisposableComponent implements vscode.FileSystemProvider {
     private _onDidChangeFile: vscode.EventEmitter<vscode.FileChangeEvent[]>;
@@ -91,7 +90,7 @@ const tempWrite = compareTempFileSystemProvider.getAsyncWriter();
 const diffTabSelectors: Map<string, EditSelector> = new Map();
 
 export async function createVirtualModifiedFileUri(originalUri: vscode.Uri, text: string) {
-   return await tempWrite(originalUri.fsPath, text);
+   return await tempWrite(originalUri.path, text);
 }
 
 /**
@@ -581,11 +580,6 @@ class TempFileManager {
 const globalTempFileManager = new TempFileManager();
 
 export {
-    EditSelector,
-    CompareTempFileProvider,
-    diffTabSelectors,
-    compareTempFileSystemProvider,
-    tempWrite,
-    globalTempFileManager,
-    // DiffTabCodelensProvider
+    CompareTempFileProvider, compareTempFileSystemProvider, diffTabSelectors, EditSelector, globalTempFileManager, tempWrite
 };
+

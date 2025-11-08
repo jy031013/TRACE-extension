@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import { createDeterminedRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
-import { toRelPath, getActiveFilePath, toAbsPath, getLineInfoInDocument } from '../utils/file-utils';
-import { postRequestToDiscriminator, postRequestToLocator, postRequestToGenerator, modelServerProcess, postRequestToTRACEInvoker, postRequestToTRACELocator, RequestTRACEInvoker, PreJudgedLspType, RequestLspFoundLocation, RequestGenerator, ResponseGenerator, ResponseEditLocationWithLabels, ResponseTRACELocator, ResponseTRACEInvoker, ResponseTRACEDefRefInfo, ResponseTRACEInvokerRenameInfo } from './backend-requests';
-import { statusBarItem } from '../ui/progress-indicator';
-import { LocatorLocation, RequestEdit, EditType, FileAsHunks, SimpleEdit } from '../utils/base-types';
-import { BackendApiEditGenerationJsonType } from '../utils/json-validator';
 import { CodeRangesInFile } from '../editor-state-monitor';
+import { createFullEditRenameRefactor, createRenameRefactor, globalQueryContext, Refactor } from '../global-result-context';
+import { statusBarItem } from '../ui/progress-indicator';
+import { RequestEdit, SimpleEdit } from '../utils/base-types';
+import { getActiveFilePath, getLineInfoInDocument, toAbsPath, toRelPath } from '../utils/file-utils';
+import { modelServerProcess, postRequestToDiscriminator, postRequestToGenerator, postRequestToLocator, postRequestToTRACEInvoker, postRequestToTRACELocator, PreJudgedLspType, RequestGenerator, RequestLspFoundLocation, RequestTRACEInvoker, ResponseEditLocationWithLabels, ResponseGenerator, ResponseTRACEDefRefInfo, ResponseTRACEInvoker, ResponseTRACELocator } from './backend-requests';
 
 /* 
     The following is experimental code for wrapping backend request
@@ -386,44 +385,45 @@ async function requestInvokerAndLocationByTRACE(
     // TODO add strict format check for each "valid type" of locatorOutput
     if ('type' in invokerOutput) {
         if (invokerOutput.type === 'rename') {
+
             // Old-fashion way, by intentional renaming twice to trigger rename provider
-    
-            // const refactorInfo = invokerOutput.info;
-            // const renameRefactor = await createRenameRefactor(
-            //     refactorInfo.file,
-            //     refactorInfo.line,
-            //     refactorInfo.beforeText,
-            //     refactorInfo.afterText
-            // );
-            // if (renameRefactor) {
-            //     return ['rename', renameRefactor];
-            // }
-            
-            if (cachedRenameOperation) {
-                if (prevEdits.length === 0) {
-                    return;
-                }
-                const lastEditUri = vscode.Uri.file(prevEdits[prevEdits.length - 1].path);
-                const lastEditLine = prevEdits[prevEdits.length - 1].line;
-                
-                const filteringRenameInfo = invokerOutput.info as ResponseTRACEInvokerRenameInfo;
-                
-                if (filteringRenameInfo.added_identifiers.length > 0) {
-                    const primaryInfo = filteringRenameInfo.added_identifiers[0];
-                    const renameRefactor = createDeterminedRenameRefactor(primaryInfo.name, cachedRenameOperation.ranges);
-                    renameRefactor.removeOriginalRename(lastEditUri,
-                        new vscode.Position(
-                            primaryInfo.start[0] + lastEditLine,
-                            primaryInfo.start[1]
-                        )
-                    );
-
-                    return ['rename', renameRefactor];
-                }
-
-            } else {
-                console.trace('no cached rename operation found, nothing is done');
+            const refactorInfo = invokerOutput.info as any;
+            const renameRefactor = await createFullEditRenameRefactor(
+                prevEdits[0],
+                refactorInfo.added_identifiers[0].start[0],
+                refactorInfo.added_identifiers[0].start[1],
+                refactorInfo.deleted_identifiers[0].name,
+                refactorInfo.added_identifiers[0].name
+            );
+            if (renameRefactor) {
+                return ['rename', renameRefactor];
             }
+            
+            // if (cachedRenameOperation) {
+            //     if (prevEdits.length === 0) {
+            //         return;
+            //     }
+            //     const lastEditUri = vscode.Uri.file(prevEdits[prevEdits.length - 1].path);
+            //     const lastEditLine = prevEdits[prevEdits.length - 1].line;
+                
+            //     const filteringRenameInfo = invokerOutput.info as ResponseTRACEInvokerRenameInfo;
+                
+            //     if (filteringRenameInfo.added_identifiers.length > 0) {
+            //         const primaryInfo = filteringRenameInfo.added_identifiers[0];
+            //         const renameRefactor = createDeterminedRenameRefactor(primaryInfo.name, cachedRenameOperation.ranges);
+            //         renameRefactor.removeOriginalRename(lastEditUri,
+            //             new vscode.Position(
+            //                 primaryInfo.start[0] + lastEditLine,
+            //                 primaryInfo.start[1]
+            //             )
+            //         );
+
+            //         return ['rename', renameRefactor];
+            //     }
+
+            // } else {
+            //     console.trace('no cached rename operation found, nothing is done');
+            // }
         } else if (invokerOutput.type === 'def&ref') {
             return ['def&ref', invokerOutput.info as ResponseTRACEDefRefInfo];
         }
@@ -495,3 +495,4 @@ export {
     requestEdit,
     requestInvokerAndLocationByTRACE
 };
+

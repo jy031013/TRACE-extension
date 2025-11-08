@@ -1,15 +1,15 @@
+import { diffWords } from "diff";
 import os from "os";
 import vscode from "vscode";
-import { DisposableComponent } from "./utils/base-component";
-import { LineBreak, LocatorLocation, SingleLineEdit, FileEdits } from "./utils/base-types";
-import { HighlightedLocation, LocationResultDecoration } from "./ui/location-decoration";
-import { globalLocationViewManager, globalRefactorPreviewTreeViewManager } from "./views/location-tree-view";
-import { findFirstDiffPos } from "./utils/utils";
-import { getLineInfoInDocument } from "./utils/file-utils";
-import { diffWords } from "diff";
 import { CodeRangesInFile } from "./editor-state-monitor";
-import { ResponseEditLocationWithLabels, ResponseTRACELocator } from "./services/backend-requests";
+import { ResponseEditLocationWithLabels } from "./services/backend-requests";
 import { statisticsCollector } from "./statistics";
+import { HighlightedLocation, LocationResultDecoration } from "./ui/location-decoration";
+import { DisposableComponent } from "./utils/base-component";
+import { FileEdits, LineBreak, LocatorLocation, RequestEdit, SingleLineEdit } from "./utils/base-types";
+import { getLineInfoInDocument } from "./utils/file-utils";
+import { findFirstDiffPos } from "./utils/utils";
+import { globalLocationViewManager, globalRefactorPreviewTreeViewManager } from "./views/location-tree-view";
 
 // TODO consider using/transfering to `async-lock` for this
 class EditLock {
@@ -48,7 +48,7 @@ class QuerySettings {
             value: this.commitMessage ?? '',
             title: "Edit Description"
         });
-        
+
         if (userInput) {
             this.commitMessage = userInput;
             statisticsCollector.addLog("action", "User input non-empty commit message");
@@ -65,7 +65,7 @@ class QuerySettings {
  */
 class LocationResult {
     private readonly locations: LocatorLocation[] = [];
-    
+
     private decoration: LocationResultDecoration;
 
     constructor(locations: LocatorLocation[]) {
@@ -97,7 +97,7 @@ class LocationResult {
 class TRACELocationResult {
     /** Indexed as [URI String] -> [Location Results] */
     private readonly locations: Map<string, ResponseEditLocationWithLabels[]>;
-    
+
     private decoration: LocationResultDecoration;
 
     constructor(locations: [vscode.Uri, ResponseEditLocationWithLabels[]][]) {
@@ -106,7 +106,7 @@ class TRACELocationResult {
         const highlightedLocations: HighlightedLocation[] = Array.from(locations.entries()).reduce((acc, [i, [uri, locs]]) => {
             locs.forEach(loc => {
                 const editType = loc.inline_labels.every((loc) => loc === 'add') ? 'add' : 'replace';
-                    
+
                 // push the first continuous non-keep sequence of lines
                 let startLine = loc.code_window_start_line;
                 let endLine = startLine;
@@ -137,7 +137,7 @@ class TRACELocationResult {
 
             return acc;
         }, [] as HighlightedLocation[]);
-        
+
         // FIXME This type of decoration is unused. The decoration is delegated to a traditional LocationResult
         this.decoration = new LocationResultDecoration({
             type: 'plain-location',
@@ -195,7 +195,7 @@ class TRACELocationResult {
 
 class SingleRefactorResult {
     private readonly refactorOperation: Refactor;
-    
+
     private fileEdits: FileEdits[] = [];
 
     constructor(refactorOperation: Refactor) {
@@ -210,7 +210,7 @@ class SingleRefactorResult {
         const workspaceEdit = new vscode.WorkspaceEdit();
         for (const [uri, edits] of this.fileEdits) {
             edits.forEach(edit => {
-            workspaceEdit.replace(uri, edit.range, edit.newText);
+                workspaceEdit.replace(uri, edit.range, edit.newText);
             });
         }
         await vscode.workspace.applyEdit(workspaceEdit, {
@@ -236,7 +236,7 @@ class SingleRefactorResult {
             }
         }
     }
-    
+
     async resolve() {
         this.fileEdits = await this.refactorOperation.resolveLocations();
         globalRefactorPreviewTreeViewManager.reloadLocations(this.fileEdits);
@@ -259,11 +259,48 @@ export async function createRenameRefactor(file: string, line: number, beforeTex
     // TODO this location does not contain line break
     const location = new vscode.Location(fileUri, (await getLineInfoInDocument(fileUri.fsPath, line)).range);
     return new RenameRefactor({
-        location,
-        beforeContent: beforeText,
-        afterContent: afterText
+        firstRename: {
+            location,
+            beforeContent: beforeText,
+            afterContent: afterText
+        }
     });
 }
+
+export async function createFullEditRenameRefactor(edit: RequestEdit, offsetRow: number, offsetColumn: number, beforeIdentifier: string, afterIdentifier: string): Promise<RenameRefactor | undefined> {
+    const fileUri = vscode.Uri.file(edit.path);
+
+    const beforeRange = new vscode.Range(
+        new vscode.Position(edit.line, 0),
+        edit.rmText.at(-1)?.endsWith('\n')
+            ? new vscode.Position(edit.line + edit.rmLine, 0)
+            : new vscode.Position(edit.line + edit.rmLine - 1, edit.rmText.at(-1)?.length ?? 0)
+    );
+    const afterRange = new vscode.Range(
+        new vscode.Position(edit.line, 0),
+        edit.addText.at(-1)?.endsWith('\n')
+            ? new vscode.Position(edit.line + edit.addLine, 0)
+            : new vscode.Position(edit.line + edit.addLine - 1, edit.addText.at(-1)?.length ?? 0)
+    );
+    const beforeText = edit.rmText.join('');
+    const afterText = edit.addText.join('');
+
+    // TODO this location does not contain line break
+    return new RenameRefactor({
+        firstRenameEdit: {
+            uri: fileUri,
+            beforeRange,
+            afterRange,
+            beforeText,
+            afterText,
+            offsetRow,
+            offsetColumn,
+            beforeIdentifier,
+            afterIdentifier
+        }
+    });
+}
+
 
 export function createDeterminedRenameRefactor(newName: string, renameRangesInFiles: CodeRangesInFile[]) {
     const fileEdits: FileEdits[] = [];
@@ -284,79 +321,150 @@ export interface Refactor {
     resolveLocations(): Promise<FileEdits[]>;
 }
 
+export interface recoveredRenameEditInFile {
+    beforeRange: vscode.Range,
+    afterRange: vscode.Range,
+    beforeText: string,
+    afterText: string,
+    offsetRow: number,
+    offsetColumn: number,
+    beforeIdentifier: string,
+    afterIdentifier: string
+}
+
+export interface recoveredRenameEdit extends recoveredRenameEditInFile {
+    uri: vscode.Uri
+}
+
 export class RenameRefactor implements Refactor {
-    private readonly firstRename: SingleLineEdit;
+    private readonly firstRename?: SingleLineEdit;
+    private readonly firstRenameEdit?: recoveredRenameEdit;
     private resolvedEdits: FileEdits[] = [];
 
-    constructor(firstRename: SingleLineEdit) {
-        this.firstRename = firstRename;
+    constructor(config: { firstRename?: SingleLineEdit, firstRenameEdit?: recoveredRenameEdit }) {
+        this.firstRename = config.firstRename;
+        this.firstRenameEdit = config.firstRenameEdit;
     }
 
     async resolveLocations(): Promise<FileEdits[]> {
-        // simulate an edit to find the reference
-        const { location: loc, beforeContent: bc, afterContent: ac } = this.firstRename;
-
-        const editor = await vscode.window.showTextDocument(loc.uri);
-        if (!editor) return [];
-
-        const lineNum = loc.range.start.line;
-        const line = editor.document.lineAt(lineNum);
-
-        const firstDiffPos = findFirstDiffPos(bc, ac);
-        if (firstDiffPos > line.range.end.character) return [];
-
-        const diffs = diffWords(bc, ac);
-        const firstReplacedWord = diffs.find(d => d.added)?.value;
-        if (!firstReplacedWord) return [];
-        
-        // TODO Due to writing this as async/await, setting a promise seems to be unnecessary
-        let getEditsResolve: any;
-        const getEditsPromise = new Promise((res) => {
-            getEditsResolve = res;
-        }).then((editEntries: any) => {
-            // TODO filtering the first as "edited rename" is not accurate, need check
-            const refactorEdits: FileEdits[] = editEntries;
-            const firstFileEdits = refactorEdits[0];
-            if (firstFileEdits) {
-                firstFileEdits[1] = firstFileEdits[1].slice(1);
-            }
-            return editEntries;
-        });
-
         // show a progress message
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Analyzing rename..." }, async () => {
+        return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Analyzing rename..." }, async () => {
+            let renameLocationUri: vscode.Uri;
+            let renamePosition: vscode.Position;
+            let renameToIdentifier: string;
+            let editor: vscode.TextEditor;
+            let targetWorkspaceEdit: vscode.WorkspaceEdit;
 
-            await editor.edit((editBuilder) => {
-                editBuilder.replace(line.range, bc);
-            }, {
-                undoStopBefore: false,
-                undoStopAfter: false
-            });
+            if (this.firstRename) {
+                // simulate an edit to find the reference
+                const { location: loc, beforeContent: bc, afterContent: ac } = this.firstRename;
 
-            // const linePattern = /.*?(\r\n?|\n|$)/g;  // empty new line at end when it ends with line break
-            // const virtualDoc = editor.document.getText().match(linePattern) ?? [];  // this is not possible to be null / empty array, just a prevention
-            // virtualDoc[loc.range.start.line] = bc;
-            // const virtualDocText = virtualDoc.join('');
-            // const modifiedProxyFileUri = await createVirtualModifiedFileUri(loc.uri, virtualDocText);
-            // console.log(`text: ${(await vscode.workspace.openTextDocument(modifiedProxyFileUri)).getText()}`);
+                const lineNum = loc.range.start.line;
 
-            // find that it returns WorkspaceEdit here, we use it instead of our own RangeEdit
-            const targetWorkspaceEdit: vscode.WorkspaceEdit = await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider',
-                loc.uri, line.range.start.translate(0, firstDiffPos), firstReplacedWord
-            );
-            getEditsResolve(targetWorkspaceEdit.entries());
+                editor = await vscode.window.showTextDocument(loc.uri);
+                if (!editor) return [];
 
-            await editor.edit((editBuilder) => {
-                editBuilder.replace(line.range, ac);
-            }, {
-                undoStopBefore: false,
-                undoStopAfter: false
-            });
+                const line = editor.document.lineAt(lineNum);
+
+                const firstDiffPos = findFirstDiffPos(bc, ac);
+                if (firstDiffPos > line.range.end.character) return [];
+
+                const diffs = diffWords(bc, ac);
+                const firstReplacedWord = diffs.find(d => d.added)?.value;
+                if (!firstReplacedWord) return [];
+
+                renameLocationUri = loc.uri;
+                renamePosition = line.range.start.translate(0, firstDiffPos);
+                renameToIdentifier = firstReplacedWord;
+
+                // recover original text
+                await editor.edit((editBuilder) => {
+                    editBuilder.replace(line.range, bc);
+                }, {
+                    undoStopBefore: false,
+                    undoStopAfter: false
+                });
+
+                // find that it returns WorkspaceEdit here, we use it instead of our own RangeEdit
+                targetWorkspaceEdit = await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider',
+                    renameLocationUri, renamePosition, renameToIdentifier
+                );
+
+                // redo the edit
+                await editor.edit((editBuilder) => {
+                    editBuilder.replace(line.range, ac);
+                }, {
+                    undoStopBefore: false,
+                    undoStopAfter: false
+                });
+            } else if (this.firstRenameEdit) {
+                const edit = this.firstRenameEdit;
+                renameLocationUri = edit.uri;
+
+                editor = await vscode.window.showTextDocument(renameLocationUri);
+                if (!editor) return [];
+
+                // FIXME the character offset cannot match when there are multiple edits in one file, need a helper class to manage the snapshots and edits and provide the correct positions
+
+                // recover original text
+                await editor.edit((editBuilder) => {
+                    editBuilder.replace(edit.afterRange, edit.beforeText);
+                }, {
+                    undoStopBefore: false,
+                    undoStopAfter: false
+                });
+
+                renamePosition = edit.beforeRange.start.translate(edit.offsetRow, edit.offsetColumn);
+                // FIXME no validation of beforeIdentifier
+                renameToIdentifier = edit.afterIdentifier;
+
+                // find that it returns WorkspaceEdit here, we use it instead of our own RangeEdit
+                targetWorkspaceEdit = await vscode.commands.executeCommand('vscode.executeDocumentRenameProvider',
+                    renameLocationUri, renamePosition, renameToIdentifier
+                );
+
+                // redo the edit
+                await editor.edit((editBuilder) => {
+                    editBuilder.replace(edit.beforeRange, edit.afterText);
+                }, {
+                    undoStopBefore: false,
+                    undoStopAfter: false
+                });
+            } else {
+                return [];
+            }
+
+            // 1. resolve new edit lines when the full edit is performed
+            // 2. filter out rename edits that is overlapping with the full edit
+            let refactorEdits: FileEdits[] = targetWorkspaceEdit.entries();
+            if (this.firstRenameEdit) {
+                const edit = this.firstRenameEdit;
+                const editAfterStartLine = edit.afterRange.start.line;
+                const editAfterEndLine = edit.afterRange.end.line - (edit.afterRange.end.character === 0 ? 1 : 0);
+                const editBeforeEndLine = edit.beforeRange.end.line - (edit.beforeRange.end.character === 0 ? 1 : 0);
+                const editShiftedLine = editAfterEndLine - editBeforeEndLine;
+                refactorEdits = refactorEdits
+                    .map(([uri, edits]) => {
+                        const processed: [vscode.Uri, vscode.TextEdit[]] = [uri, []];
+                        edits.forEach((e) => {
+                            let editStartLine = e.range.start.line;
+                            let editEndLine = e.range.end.line;       // assume rename edit has no line break
+                            if (editStartLine >= editAfterStartLine && editEndLine <= editAfterEndLine) return;
+                            if (e.range.start.line > editAfterEndLine) {
+                                e.range = new vscode.Range(
+                                    e.range.start.translate(editShiftedLine, 0),
+                                    e.range.end.translate(editShiftedLine, 0)
+                                );
+                            }
+                            processed[1].push(e);
+                        });
+                        return processed;
+                    })
+                    .filter(([_, edits]) => edits.length > 0);
+            }
+
+            return refactorEdits;
         });
-
-        this.resolvedEdits = await getEditsPromise;
-        return this.resolvedEdits;
-        // const doc = vscode.workspace.
     }
 }
 
@@ -371,7 +479,7 @@ export class DeterminedRenameRefactor implements Refactor {
     }
     removeOriginalRename(uri: vscode.Uri, editStart: vscode.Position) {
         const filteredResults: typeof this.determinedEdits = [];
-        
+
         for (const [_uri, edits] of this.determinedEdits) {
             if (_uri.toString() === uri.toString()) {
                 filteredResults.push([_uri, edits.filter((edit) => !edit.range.start.isEqual(editStart))]);
@@ -485,10 +593,10 @@ export class QueryContext extends DisposableComponent {
                             labels.push(['<add>', startLine + index, 1]);
                         }
                     }
-        
+
                     for (const [label, start, lines] of labels) {
                         const _label = label.slice(1, -1);
-        
+
                         convertedLocations.push({
                             targetFilePath: filePath,
                             // FIXME strip <delete> to delete should not use this way
@@ -516,7 +624,7 @@ export class QueryContext extends DisposableComponent {
 
             this.updateLocations(uniqueLocations);
         })();
-        
+
         // On the other hand, update the real location
         this.clearResults();
         const locations: [vscode.Uri, ResponseEditLocationWithLabels[]][] = [];
@@ -572,7 +680,7 @@ export class QueryContext extends DisposableComponent {
         for (const loc of locs) {
             processedLocations.push(...this.preProcessSingleLocation(loc));
         }
-        
+
         return processedLocations;
     }
 
@@ -603,7 +711,7 @@ export class QueryContext extends DisposableComponent {
         let couldMergeLast = false;
         const tryMergeType = (prevType: EditType, currentType: EditType): [undefined, EditType] | [EditType, undefined] | undefined => {
             if (
-                (prevType === '<replace>' && ['<insert>', '<replace>', '<delete>'].includes(currentType)) || 
+                (prevType === '<replace>' && ['<insert>', '<replace>', '<delete>'].includes(currentType)) ||
                 ((prevType === '<delete>') && currentType === '<delete>')
             ) {
                 return [prevType, undefined];
