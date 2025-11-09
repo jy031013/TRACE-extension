@@ -64,7 +64,7 @@ class FileOffsetCounter {
 			ac += l.length;
 		}
 	}
-	
+
 	countFileOffset(pos: vscode.Position) {
 		const ll = this.linesLength;
 		const l = pos.line;
@@ -87,12 +87,12 @@ interface OpenMultiFileDiffEditorOptions {
 export interface UniqueRefactorEditsSet {
 	id: string,
 	edits: FileEdits[]
-} 
+}
 
 // TODO consider using primitive implementation of code action preview (this seems to have been hidden internally :<) (the command is visible, but the context of command is hidden)
 // TODO add cache for the resolved file diffs and virtual files, so that we don't need to re-calculate and re-store them again
 // TODO assume refactorEdits[0] is the edit that is done now, but we cannot guarantee, need check
-async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet) {
+async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet, fromLine: number = 0) {
 	// const rangeEditClassified: Map<string, FileEdits[]> = new Map();
 	// for (const rangeEdit of refactorEdits) {
 	// 	const editUriString = rangeEdit.location.uri.toString();
@@ -103,7 +103,7 @@ async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet) {
 	// 		rangeEditClassified.set(editUriString, [rangeEdit]);
 	// 	}
 	// }
-	
+
 	const changes: [vscode.Uri, vscode.Uri][] = [];
 	for (const [originalFileUri, rangeEdits] of refactorEditSet.edits) {
 		// const originalContent = readFileSync(originalFileUri.fsPath, { encoding: 'utf-8' });
@@ -119,7 +119,7 @@ async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet) {
 				replacements.push([s, e, text]);
 			}
 		}
-		
+
 		let modifiedContent = '';
 		let lastStop = 0;
 		let textEnd = originalContent.length;
@@ -129,15 +129,28 @@ async function openRefactorPreview(refactorEditSet: UniqueRefactorEditsSet) {
 			lastStop = end;
 		}
 		modifiedContent += originalContent.slice(lastStop, textEnd);
-		
+
 		const modifiedProxyFileUri = await createVirtualModifiedFileUri(originalFileUri, modifiedContent);
 		changes.push([originalFileUri, modifiedProxyFileUri]);
 	}
+
 	// const options: OpenMultiFileDiffEditorOptions = {
 	// 	title: 'Preview',
 	// 	multiDiffSourceUri: vscode.Uri.parse(`temp-id:/${refactorEditSet.id}`), // just used as a unique identifier
 	// 	resources: changes.map(([originalUri, modifiedUri]) => ({ originalUri, modifiedUri }))
 	// };
 	// vscode.commands.executeCommand(internalOpenMultiDiffEditorCommand, options);
-	vscode.commands.executeCommand('vscode.diff', changes[0][0], changes[0][1], 'Refactor Preview');
+
+	await vscode.commands.executeCommand('vscode.diff', changes[0][0], changes[0][1], 'Refactor Preview');
+
+	if (fromLine) {
+		const editor = vscode.window.activeTextEditor;
+		if (editor) {
+			// Move the cursor to the beginning
+			const fromLineClamped = Math.max(0, fromLine);
+			const position = new vscode.Position(fromLineClamped, 0);
+			editor.selection = new vscode.Selection(position, position);
+			editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+		}
+	}
 }

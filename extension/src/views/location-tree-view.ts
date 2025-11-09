@@ -1,9 +1,9 @@
-import vscode, { TreeItem, TreeItemCollapsibleState } from 'vscode';
 import path from 'path';
-import { DisposableComponent } from '../utils/base-component';
-import { getRootPath, toRelPath } from '../utils/file-utils';
-import { EditType, LocatorLocation, FileEdits } from '../utils/base-types';
+import vscode, { TreeItem, TreeItemCollapsibleState } from 'vscode';
 import { UniqueRefactorEditsSet } from '../comands';
+import { DisposableComponent } from '../utils/base-component';
+import { EditType, FileEdits, LocatorLocation } from '../utils/base-types';
+import { getRootPath, toRelPath } from '../utils/file-utils';
 import { generateTimeSpecificId } from '../utils/utils';
 
 export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileItem | ModItem>  {
@@ -274,7 +274,7 @@ class ModItem extends vscode.TreeItem {
             this.command = {
                 command: 'trace.openRefactorPreview',
                 title: 'Open Refactor View',
-                arguments: [refactorEdits]
+                arguments: [refactorEdits, fromLine]
             };
         } else {
             this.command = {

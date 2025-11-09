@@ -1489,12 +1489,12 @@ export class BM25Index extends vscode.Disposable {
             this.lastModified.set(filePath, mtimeSec);
             await new Promise((resolve, reject) => readFile(filePath, { encoding: 'utf-8' }, (err, data) => {
                 if (err) {
-                    console.error(`Failed to read file ${filePath}:`, err);
+                    // console.error(`BM25 failed to read file`, filePath, err);
                     reject(err);
                     return;
                 }
                 this.accessRWLock(() => {
-                    console.log('Adding doc', filePath);
+                    // console.debug('BM25 adding doc', filePath);
                     this.bm25Engine.addDoc({ title: filePath, body: data }, filePath);
                     resolve(undefined);
                 });
