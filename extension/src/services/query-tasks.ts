@@ -6,7 +6,7 @@ import { statisticsCollector } from '../statistics';
 import { statusBarItem } from '../ui/progress-indicator';
 import { DisposableComponent } from '../utils/base-component';
 import { EditType, SimpleEdit } from '../utils/base-types';
-import { getOpenedFilePaths, getRootPath, getStagedFile, readMostRelatedFiles, toDriveLetterLowerCasePath, toPosixPath, updatePrevEdits } from '../utils/file-utils';
+import { getOpenedFilePaths, getRootPath, getStagedFile, readMostRelatedFilesWithIndex, toDriveLetterLowerCasePath, toPosixPath, updatePrevEdits } from '../utils/file-utils';
 import { splitLines } from '../utils/utils';
 import { EditSelector, diffTabSelectors, globalTempFileManager, tempWrite } from '../views/compare-view';
 import { requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByTRACE, requestTRACELocator } from './query-processes';
@@ -67,8 +67,24 @@ async function _predictLocationByTRACE() {
     statisticsCollector.addLog("action", "trace.predictLocations accepted commit message");
 
     statusBarItem.setStatusLoadingFiles();
-    
-    const fileContents = await readMostRelatedFiles();
+
+    const {
+        editsWithTimestamp,
+        lspType,
+        fullLspFoundLocations,
+        cachedRenameOperation
+    } = await globalEditInfoCollector.exportAnalyzedEdits();
+
+    const requestEdits = editsWithTimestamp.map(e => convertToRequestEdit(e));
+
+    let queryText = '';
+    const lastEdit = editsWithTimestamp.at(-1);
+    const joinLines = (lines: string[]) => lines.map(x => x.trim()).join(' ');
+    if (lastEdit) {
+        queryText += joinLines(lastEdit.rmText) + ' ' + joinLines(lastEdit.addText);
+    }
+
+    const fileContents = await readMostRelatedFilesWithIndex(queryText);
     const currentFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
 
     // Split the file content into lines
@@ -91,15 +107,6 @@ async function _predictLocationByTRACE() {
     for (const file of files) {
         filesAtPath[file[0]] = file[1];
     }
-
-    const {
-        editsWithTimestamp,
-        lspType,
-        fullLspFoundLocations,
-        cachedRenameOperation
-    } = await globalEditInfoCollector.exportAnalyzedEdits();
-
-    const requestEdits = editsWithTimestamp.map(e => convertToRequestEdit(e));
 
     try {
         statisticsCollector.addLog("action", "trace.predictLocations invoker <-");

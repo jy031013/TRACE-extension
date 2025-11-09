@@ -1,12 +1,12 @@
 import vscode from 'vscode';
+import { registerBasicCommands, registerTopTaskCommands } from './comands';
+import { connection_notify } from './connection-notify';
+import { FileStateMonitor, initializeGlobalBM25Index, updateEditorState } from './editor-state-monitor';
 import { globalEditorState } from './global-workspace-context';
-import { FileStateMonitor, updateEditorState } from './editor-state-monitor';
+import { modelServerProcess } from './services/backend-requests';
+import { statusBarItem } from './ui/progress-indicator';
 import { compareTempFileSystemProvider } from './views/compare-view';
 import { globalLocationViewManager } from './views/location-tree-view';
-import { registerBasicCommands, registerTopTaskCommands } from './comands';
-import { statusBarItem } from './ui/progress-indicator';
-import { modelServerProcess } from './services/backend-requests';
-import { connection_notiy } from './connection-notify';
 
 function activate(context: vscode.ExtensionContext) {
 	console.log('Extension activated with arguments:', process.argv);
@@ -26,9 +26,15 @@ function activate(context: vscode.ExtensionContext) {
 			
 	context.subscriptions.push(
 		new FileStateMonitor(),
-		);
+	);
 	
-	connection_notiy(context);	
+	context.subscriptions.push(
+		initializeGlobalBM25Index(vscode.workspace.workspaceFolders?.[0].uri.fsPath || "", {
+			validSuffixes: [".ts", ".js", ".tsx", ".jsx", ".py", ".java", ".go", ".cpp", ".c", ".cs", ".rb", ".rs", ".php", ".html", ".css", ".scss", ".json", ".yaml", ".yml", ".xml", ".md"]
+		})
+	);
+	
+	connection_notify(context);	
 
 	updateEditorState(vscode.window.activeTextEditor);
 }
@@ -40,3 +46,4 @@ export {
 	activate,
 	deactivate
 };
+

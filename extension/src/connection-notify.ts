@@ -1,9 +1,9 @@
-import * as vscode from 'vscode';
 import axios from 'axios';
+import * as vscode from 'vscode';
 
 let first_success = true;
 
-export function connection_notiy(context: vscode.ExtensionContext) {
+export function connection_notify(context: vscode.ExtensionContext) {
     async function validateBackendConnection(queryURL: string, showMessage: boolean = true): Promise<void> {
         try {
             const response = await axios.get(queryURL + "/check");

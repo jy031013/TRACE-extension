@@ -234,6 +234,9 @@
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.21.2",
     "ts-node": "^10.9.2",
-    "vscode-languageserver": "^8.1.0"
+    "vscode-languageserver": "^8.1.0",
+    "wink-bm25-text-search": "^3.1.2",
+    "wink-eng-lite-web-model": "^1.8.1",
+    "wink-nlp": "^2.4.0"
   }
 }

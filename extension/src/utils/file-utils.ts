@@ -1,10 +1,11 @@
-import vscode from 'vscode';
 import fs from 'fs';
-import path from 'path';
 import { glob } from 'glob';
+import path from 'path';
+import vscode from 'vscode';
+import { globalBM25Index } from '../editor-state-monitor';
 import { osType } from '../global-result-context';
-import { SimpleEdit } from './base-types';
 import { globalEditorState } from '../global-workspace-context';
+import { SimpleEdit } from './base-types';
 
 type GlobPatterns = {
     exclude: string[],
@@ -349,7 +350,7 @@ export async function readMostRelatedFiles() {
     // const fileContents = await readFilesDefaultCollected(globFromPath) as [string, string][];   
     
     // DEBUG
-    console.warn(`file-utils.ts - readMostRelatedFiles(): Debugging code logic may impact real usage`)
+    console.warn(`file-utils.ts - readMostRelatedFiles(): Debugging code logic may impact real usage`);
     const fileContents: [string, string][] = [];
     const specialRelativePaths = [
         'extensions-builtin/ScuNET/scripts',
@@ -375,21 +376,25 @@ export async function readMostRelatedFiles() {
     return fileContents;
 }
 
+export async function readMostRelatedFilesWithIndex(query: string) {
+    if (!globalBM25Index) {
+        return [];
+    }
+
+    const topKFiles: [string, number][] = await globalBM25Index.bm25Search(query, 5); // [path, score]
+    // FIXME getStagedFile should get opened file paths itself
+    const openedPaths = getOpenedFilePaths();
+
+    const result: [string, string][] = [];
+    for (const [filePath, _score] of topKFiles) {
+        const content = await getStagedFile(openedPaths, toDriveLetterLowerCasePath(filePath));
+        result.push([filePath, content]);
+    }
+    return result;
+}
+
 export {
-    toPosixPath,
-    toAbsPath,
-    toRelPath,
-    getActiveFilePath,
-    getLineInfoInDocument,
-    detectEdit,
-    pushEdit,
-    updatePrevEdits,
-    getPrevEdits,
-    globFiles,
-    replaceCurrentSnapshot,
-    getRootPath,
-    readFilesDefaultCollected,
-    getOpenedFilePaths,
-    getStagedFile,
-    liveFilesGetter
+    detectEdit, getActiveFilePath,
+    getLineInfoInDocument, getOpenedFilePaths, getPrevEdits, getRootPath, getStagedFile, globFiles, liveFilesGetter, pushEdit, readFilesDefaultCollected, replaceCurrentSnapshot, toAbsPath, toPosixPath, toRelPath, updatePrevEdits
 };
+
