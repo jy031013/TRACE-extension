@@ -527,7 +527,7 @@ export class QueryContext extends DisposableComponent {
     }
 
     updateTRACELocations(locationsByFile: { [filePath: string]: ResponseEditLocationWithLabels[] }) {
-        const confidenceThreshold = 0.8;
+        const confidenceThreshold = 0.7;
 
         // filter out non-keep inline label confidence < 80%, THIS IS IN-PLACE!
         for (const filePath in locationsByFile) {

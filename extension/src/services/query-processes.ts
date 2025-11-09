@@ -4,7 +4,7 @@ import { createFullEditRenameRefactor, createRenameRefactor, globalQueryContext,
 import { statusBarItem } from '../ui/progress-indicator';
 import { RequestEdit, SimpleEdit } from '../utils/base-types';
 import { getActiveFilePath, getLineInfoInDocument, toAbsPath, toRelPath } from '../utils/file-utils';
-import { modelServerProcess, postRequestToDiscriminator, postRequestToGenerator, postRequestToLocator, postRequestToTRACEInvoker, postRequestToTRACELocator, PreJudgedLspType, RequestGenerator, RequestLspFoundLocation, RequestTRACEInvoker, ResponseEditLocationWithLabels, ResponseGenerator, ResponseTRACEDefRefInfo, ResponseTRACEInvoker, ResponseTRACELocator } from './backend-requests';
+import { modelServerProcess, postRequestToDiscriminator, postRequestToGenerator, postRequestToLocator, postRequestToTRACEInvoker, postRequestToTRACELocator, PreJudgedLspType, RequestGenerator, RequestLspFoundLocation, RequestTRACEInvoker, RequestTRACELocator, ResponseEditLocationWithLabels, ResponseGenerator, ResponseTRACEDefRefInfo, ResponseTRACEInvoker, ResponseTRACELocator } from './backend-requests';
 
 /* 
     The following is experimental code for wrapping backend request
@@ -444,7 +444,7 @@ export async function requestTRACELocator(
     cachedRenameOperation: CachedRenameOperation | undefined
 ): Promise<ResponseTRACELocator | undefined> {
 
-    const locatorInput: RequestTRACEInvoker = {
+    const locatorInput: RequestTRACELocator = {
         language: language,
         commitMsg: commitMessage,
         prevEdits: prevEdits,
