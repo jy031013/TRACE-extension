@@ -1,21 +1,32 @@
 import os
+import platform
+
 from tree_sitter import Language, Parser
 
 ALLOWED_LANGUAGE_LIST = ["go", "javascript", "typescript", "python", "java"]
 
-def get_file_relative_path(file_path):
-    return os.path.join(os.path.dirname(__file__), file_path)
-
-PARSER_LIBRARY_PATH = get_file_relative_path("tree-sitter/build/my-languages.so")
-PARSER_LANGUAGE_PATHS = list(map(get_file_relative_path, [
-                "tree-sitter/tree-sitter-go",
-                "tree-sitter/tree-sitter-javascript",
-                "tree-sitter/tree-sitter-typescript/typescript",
-                "tree-sitter/tree-sitter-python",
-                "tree-sitter/tree-sitter-java",
-            ]))
-
 def initialize_parser():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    TREE_SITTER_PATH = os.path.join(script_dir, "tree-sitter")
+    system = platform.system().lower()
+    if system == "darwin":
+        build_dir = os.path.join(TREE_SITTER_PATH, "macos_build")
+    elif system == "linux":
+        build_dir = os.path.join(TREE_SITTER_PATH, "linux_build")
+    elif system == "windows":
+        build_dir = os.path.join(TREE_SITTER_PATH, "windows_build")
+    else:
+        raise RuntimeError(f"Unsupported OS: {system}")
+    
+    PARSER_LIBRARY_PATH = os.path.join(build_dir, "my-languages.so")
+    PARSER_LANGUAGE_PATHS = [
+                os.path.join(TREE_SITTER_PATH, "tree-sitter-go"),
+                os.path.join(TREE_SITTER_PATH, "tree-sitter-javascript"),
+                os.path.join(TREE_SITTER_PATH, "tree-sitter-typescript/typescript"),
+                os.path.join(TREE_SITTER_PATH, "tree-sitter-python"),
+                os.path.join(TREE_SITTER_PATH, "tree-sitter-java"),
+            ]
+    
     if not os.path.exists(PARSER_LIBRARY_PATH):
         Language.build_library(
             # Store the library in the `build` directory

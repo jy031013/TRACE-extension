@@ -9,7 +9,6 @@ out/
 /models/**
 /mock/
 !/models/MODEL.md
-/backend/trace/tree-sitter/build/
 server.log*
 *.log
 .DS_Store
