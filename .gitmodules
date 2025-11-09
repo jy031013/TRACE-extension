@@ -1,0 +1,15 @@
+[submodule "tree-sitter/tree-sitter-go"]
+	path = backend/trace/tree-sitter/tree-sitter-go
+	url = https://github.com/tree-sitter/tree-sitter-go
+[submodule "tree-sitter/tree-sitter-javascript"]
+	path = backend/trace/tree-sitter/tree-sitter-javascript
+	url = https://github.com/tree-sitter/tree-sitter-javascript
+[submodule "tree-sitter/tree-sitter-python"]
+	path = backend/trace/tree-sitter/tree-sitter-python
+	url = https://github.com/tree-sitter/tree-sitter-python
+[submodule "tree-sitter/tree-sitter-typescript"]
+	path = backend/trace/tree-sitter/tree-sitter-typescript
+	url = https://github.com/tree-sitter/tree-sitter-typescript
+[submodule "tree-sitter/tree-sitter-java"]
+	path = backend/trace/tree-sitter/tree-sitter-java
+	url = https://github.com/tree-sitter/tree-sitter-java
