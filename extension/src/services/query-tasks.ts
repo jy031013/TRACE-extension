@@ -1,17 +1,15 @@
 import vscode from 'vscode';
-import { getRootPath, updatePrevEdits, toPosixPath, readFilesDefaultCollected, getOpenedFilePaths, getStagedFile, toDriveLetterLowerCasePath, isDescendant, readMostRelatedFiles } from '../utils/file-utils';
-import { globalQueryContext, globalEditLock } from '../global-result-context';
-import { globalEditorState } from '../global-workspace-context';
-import { CachedRenameOperation, requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByTRACE, requestTRACELocator } from './query-processes';
-import { DisposableComponent } from '../utils/base-component';
-import { EditSelector, diffTabSelectors, tempWrite, globalTempFileManager } from '../views/compare-view';
-import { statusBarItem } from '../ui/progress-indicator';
-import { EditType, EditWithTimestamp, FileAsHunks, RequestEdit, SimpleEdit } from '../utils/base-types';
-import { splitLines } from '../utils/utils';
 import { convertToRequestEdit, globalEditInfoCollector } from '../editor-state-monitor';
-import { PreJudgedLspType, RequestLspFoundLocation } from './backend-requests';
-import path from 'path';
+import { globalEditLock, globalQueryContext } from '../global-result-context';
+import { globalEditorState } from '../global-workspace-context';
 import { statisticsCollector } from '../statistics';
+import { statusBarItem } from '../ui/progress-indicator';
+import { DisposableComponent } from '../utils/base-component';
+import { EditType, SimpleEdit } from '../utils/base-types';
+import { getOpenedFilePaths, getRootPath, getStagedFile, readMostRelatedFiles, toDriveLetterLowerCasePath, toPosixPath, updatePrevEdits } from '../utils/file-utils';
+import { splitLines } from '../utils/utils';
+import { EditSelector, diffTabSelectors, globalTempFileManager, tempWrite } from '../views/compare-view';
+import { requestAndUpdateLocation, requestEdit, requestInvokerAndLocationByTRACE, requestTRACELocator } from './query-processes';
 
 /**
  * @deprecated This function is obsolete. Fetching previous edits in the new way is not implemented yet;
@@ -495,7 +493,11 @@ class GenerateEditCommand extends DisposableComponent {
         }
         async function clearEdit() {
             const selector = getSelectorOfCurrentTab();
-            selector && await selector.clearEdit();
+            if (selector) {
+                await selector.clearEdit();
+            } else {
+                await globalQueryContext.dismissRefactor();
+            }
         }
         async function acceptEdit() {
             const selector = getSelectorOfCurrentTab();
@@ -535,8 +537,7 @@ class GenerateEditCommand extends DisposableComponent {
 }
 
 export {
-    predictLocation,
-    predictLocationIfHasEditAtSelectedLine,
-    PredictLocationCommand,
-    GenerateEditCommand
+    GenerateEditCommand, PredictLocationCommand, predictLocation,
+    predictLocationIfHasEditAtSelectedLine
 };
+

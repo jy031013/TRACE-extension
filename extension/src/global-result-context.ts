@@ -644,11 +644,17 @@ export class QueryContext extends DisposableComponent {
         this.activeRefactorResult.resolve();
     }
 
-    // TODO this is not a good entrance of accessing from refactor result from outside
+    // NOTE this is not a good entrance of accessing from refactor result from outside
     async applyRefactor() {
         await this.activeRefactorResult?.apply();
         await this.activeRefactorResult?.closeRefactorPreview();
-        await this.activeLocationResult?.dispose();
+        this.activeLocationResult?.dispose();
+        this.activeLocationResult = undefined;
+    }
+
+    // TODO provide unified view of edit preview and refactor preview
+    async dismissRefactor() {
+        await this.activeRefactorResult?.closeRefactorPreview();
     }
 
     // NOTE must pre-process and split locations like this. Each location that the generator needs should contain only either 'inline' or 'inter' edit
