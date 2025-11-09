@@ -92,14 +92,23 @@ def invoker_interface(data):
         ### SECOND PHASE: discriminate the type of on-going edits
         service = ask_invoker(prev_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, gate_info, device, lang)
         if service == prior_edit_type:
-            print(f"+++ Invoker prediction: {service}, sending LSP request information backto frontend LSP.")
-            assert service in ["variable_rename", "function_rename", "def&ref"]
-            if service in ["variable_rename", "function_rename"]:
-                service = "rename" # no need for frontend to distinguish variable/function rename
-            return {
-                "type": service,
-                "info": gate_info
-            }
+            if service in ["variable_rename", "function_rename", "def&ref"]:
+                print(f"+++ Invoker prediction: {service}, sending LSP request information backto frontend LSP.")
+                if service in ["variable_rename", "function_rename"]:
+                    service = "rename" # no need for frontend to distinguish variable/function rename
+                return {
+                    "type": service,
+                    "info": gate_info
+                }
+            elif service == "clone":
+                query = "".join(data["prevEdits"][-1]["rmText"])
+                if query.strip() != "":
+                    clones = find_clone_in_project(data["files"], query, lsp_style=True)
+                    if clones != []:
+                        data["lspServiceName"] = "clone"
+                        data["lspFoundLocations"] = clones
+                        print(f"+++ Invoker prediction: clone, code clone detector found {len(clones)} locations, sending to Locator")
+                        return locator_interface(data)
             
     elif data["lspServiceName"] in ["diagnose"] and len(data["lspFoundLocations"]) > 0:
         print("+++ prevEdit has caused diagnoses, skip invoker, directly sending diagnose location to Locator.")

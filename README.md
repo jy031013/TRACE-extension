@@ -50,10 +50,11 @@ If you are interested in the training and inference of the backend models, pleas
 For end-users, simply follow the instructions:
 1. install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=CodePhilia.code-trace).
 
-2. Download the backend models via command:
+2. Download the backend models and tree-sitter via command:
 
     ```bash
-    python downloads.py
+    bash download_models.sh
+    bash download_treesitter.sh
     ```
 
 3. Set up the environment:

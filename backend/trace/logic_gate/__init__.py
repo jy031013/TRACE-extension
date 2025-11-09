@@ -1,3 +1,5 @@
+import os
+import platform
 from .is_rename import is_rename_edit
 from .is_defref import is_defref_edit
 from .is_clone import is_clone_edit
@@ -18,7 +20,20 @@ def parse_identifier(code: bytes, lang):
             
         return results
     
-    LANGUAGE = Language('build/my-languages.so', lang)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    TREE_SITTER_PATH = os.path.join(script_dir, "..", "tree-sitter")
+    system = platform.system().lower()
+    if system == "darwin":
+        build_dir = os.path.join(TREE_SITTER_PATH, "macos_build")
+    elif system == "linux":
+        build_dir = os.path.join(TREE_SITTER_PATH, "linux_build")
+    elif system == "windows":
+        build_dir = os.path.join(TREE_SITTER_PATH, "windows_build")
+    else:
+        raise RuntimeError(f"Unsupported OS: {system}")
+    
+    PARSER_LIBRARY_PATH = os.path.join(build_dir, "my-languages.so")
+    LANGUAGE = Language(PARSER_LIBRARY_PATH, lang)
 
     parser = Parser()
     parser.set_language(LANGUAGE)

@@ -1,5 +1,3 @@
-from tree_sitter import Language, Parser
-
 from trace.rich_semantic import ALLOWED_LANGUAGE_LIST, PARSERS
 
 def traverse_python_tree(node, results):
