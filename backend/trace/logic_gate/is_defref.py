@@ -1,5 +1,7 @@
 from tree_sitter import Language, Parser
 
+from trace.rich_semantic import ALLOWED_LANGUAGE_LIST, PARSERS
+
 def traverse_python_tree(node, results):
     def process_args(param, args):
         if param.type == 'identifier': # a
@@ -318,10 +320,8 @@ def traverse_tree(node, results, lang):
         traverse_tree(child, results, lang)
         
 def parse_args(code: bytes, lang):
-    LANGUAGE = Language('tree-sitter/build/my-languages.so', lang)
-
-    parser = Parser()
-    parser.set_language(LANGUAGE)
+    assert lang in ALLOWED_LANGUAGE_LIST
+    parser = PARSERS[lang]
     
     tree = parser.parse(code)
     root_node = tree.root_node
