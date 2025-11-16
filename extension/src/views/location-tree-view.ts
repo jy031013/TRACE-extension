@@ -278,7 +278,7 @@ class ModItem extends vscode.TreeItem {
             };
         } else {
             this.command = {
-                command: 'trace.openFileAtLine',
+                command: 'trace.openFileAndGenerateEdits',
                 title: '',
                 arguments: [
                     this.fileItem.filePath,

@@ -28,6 +28,26 @@ export function registerBasicCommands() {
 			editor.selection = new vscode.Selection(range.start, range.end);
 			editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 		}),
+        vscode.commands.registerCommand('trace.openFileAndGenerateEdits', async (filePath, fromLine, toLine) => {
+            statisticsCollector.addLog("command", "trace.openFileAndGenerateEdits");
+
+            const uri = vscode.Uri.file(filePath);
+            const document = await vscode.workspace.openTextDocument(uri);
+            const editor = await vscode.window.showTextDocument(document);
+
+            const isOverflowed = toLine > document.lineCount - 1;
+            fromLine = limitNum(fromLine, 0, document.lineCount - 1);
+            toLine = limitNum(toLine, 0, document.lineCount - 1);
+            const range = new vscode.Range(
+                document.lineAt(fromLine).range.start,
+                isOverflowed ? document.lineAt(toLine).range.end : document.lineAt(toLine).range.start,
+            );
+
+            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+            editor.selection = new vscode.Selection(range.start, range.end);
+
+            await vscode.commands.executeCommand("trace.generateEdits");
+        }),
 		vscode.commands.registerCommand('trace.clearPrevEdits', async () => {
 			statisticsCollector.addLog("command", "trace.clearPrevEdits");
 
