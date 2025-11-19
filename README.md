@@ -101,7 +101,7 @@ For debugging, customization purposes, please follow the instructions.
     npm install -g vsce
     ```
 
-6. Under the project root directory:
+6. Under directory `./extension`:
     
     ```bash
     yarn package

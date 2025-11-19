@@ -288,10 +288,12 @@ class ModItem extends vscode.TreeItem {
             };
         }
         
-        // FIXME this way to get assets is alkward
+        // FIXME there should exist a more elegant way to get assets
+        const iconFile = path.join(__filename, '..', '..', '..', 'assets', this.getIconFileName());
+
         this.iconPath = {
-            light: path.join(__filename, '..', '..', '..', 'assets', this.getIconFileName()),
-            dark: path.join(__filename, '..', '..', '..', 'assets', this.getIconFileName()),
+            light: vscode.Uri.file(iconFile),
+            dark: vscode.Uri.file(iconFile),
         };
         this.label = this.getLabel();
     }
