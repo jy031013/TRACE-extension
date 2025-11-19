@@ -63,25 +63,24 @@ For end-users, simply follow the instructions:
     pip install -r requirements.txt
     ```
 
-    * If you are using `conda`, please make sure to activate the environment before running the command.
-
-
 4. Start backend models via command:
 
     ```bash
     python backend/server.py
     ```
 
-    * The default port set at [`backend/server.ini`](backend/server.ini) is `5004`
+5. Connect extension with your backend at: `Settings > Trace: Query URL`
 
-    * If you want to change the port, remember to update the extension configuration as well.
+    * The default URL is: `http://localhost:5004`, update URL for your backend.
 
-5. If seeing the following message, you are all set to go:
+    * Change the default port `5004` at [`backend/server.ini`](backend/server.ini).
+
+6. If seeing the following message, you are all set to go:
     ![image](extension/assets/ready.png)
 
 ### Deploy as a developer
 
-For debugging, customization purposes, please follow the instructions
+For debugging, customization purposes, please follow the instructions.
 
 1. Under directory `./extension`, install Node packages:
     
@@ -91,7 +90,7 @@ For debugging, customization purposes, please follow the instructions
 
 2. Open the project directory in VS Code, press `F5`, choose `Run Extension` if you are required to choose a configuration;
 
-3. A new VS Code window (the "development host") will open with CoEdPilot extension loaded;
+3. A new VS Code window (the "development host") will open with TRACE extension loaded;
 
 4. You may debug or customize the extension via the development host;
 
