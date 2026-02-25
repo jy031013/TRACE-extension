@@ -116,6 +116,22 @@ For debugging, customization purposes, please follow the instructions.
 
 8. For personal usage, you may open the VS Code command palette (`Ctrl` + `Shift` + `P` / `Cmd` + `Shift` + `P`), then select `Extensions: Install from VSIX...` and choose the `.vsix` file generated in the previous step.
 
+## ✍️ Citation
+
+If you find our work helpful, please consider citing our paper:
+
+```
+@inproceedings{liu2025learning,
+  title={Learning Project-wise Subsequent Code Edits via Interleaving Neural-based Induction and Tool-based Deduction},
+  author={Liu, Chenyan and Lin, Yun and Huang, Yuhuan and Chang, Jiaxin and Qi, Binhang and Jiang, Bo and Huang, Zhiyong and Dong, Jin Song},
+  booktitle={2025 40th IEEE/ACM International Conference on Automated Software Engineering (ASE)},
+  pages={1377--1389},
+  year={2025},
+  organization={IEEE},
+  doi={https://doi.org/10.1109/ASE63991.2025.00117}
+}
+```
+
 ## ❓ Issues
 
 The project is still in development, not fully tested on different platforms. 
