@@ -54,6 +54,7 @@ For end-users, simply follow the instructions:
 
     ```bash
     bash download_models.sh
+    bash download_backbone_models.sh
     bash download_treesitter.sh
     ```
 

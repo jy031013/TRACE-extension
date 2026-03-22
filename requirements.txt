@@ -2,6 +2,7 @@ torch
 torchvision
 torchaudio
 transformers
+protobuf
 retriv
 flask
 tqdm

@@ -6,6 +6,21 @@ REPO_ID="code-philia/TRACE"
 TARGET_DIR="$(pwd)/models"
 mkdir -p "$TARGET_DIR"
 
+if [ -x "$(pwd)/.venv/bin/hf" ]; then
+    HF_CLI=("$(pwd)/.venv/bin/hf" download)
+    HF_LOCAL_DIR_ARGS=(--local-dir)
+elif command -v hf >/dev/null 2>&1; then
+    HF_CLI=(hf download)
+    HF_LOCAL_DIR_ARGS=(--local-dir)
+elif command -v huggingface-cli >/dev/null 2>&1; then
+    HF_CLI=(huggingface-cli download)
+    HF_LOCAL_DIR_ARGS=(--local-dir --local-dir-use-symlinks False)
+else
+    echo "❌ Error: neither 'hf' nor 'huggingface-cli' is available."
+    echo "   Install huggingface_hub in your active Python environment first."
+    exit 1
+fi
+
 download_subdir() {
     local subpath="$1"   # e.g.: invoker/model/checkpoint-last
     local name="$2"      # e.g.: invoker_model
@@ -19,9 +34,8 @@ download_subdir() {
     echo "Downloading ${subpath} -> ${final_dir}"
 
     # Only download specified subdirectory, without symlinks
-    huggingface-cli download "$REPO_ID" \
-        --local-dir "$tmp_dir" \
-        --local-dir-use-symlinks False \
+    "${HF_CLI[@]}" "$REPO_ID" \
+        "${HF_LOCAL_DIR_ARGS[@]}" "$tmp_dir" \
         --include "${subpath}/*"
 
     # If nothing was downloaded, exit with error to avoid issues with mv later

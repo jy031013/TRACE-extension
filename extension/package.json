@@ -17,6 +17,12 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
+    "onView:editLocations",
+    "onView:Refactor",
+    "onCommand:trace.predictLocations",
+    "onCommand:trace.generateEdits",
+    "onCommand:trace.inputMessage",
     "onLanguage:typescript",
     "onLanguage:javascript",
     "onLanguage:python",

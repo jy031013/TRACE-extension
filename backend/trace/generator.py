@@ -9,6 +9,7 @@ from transformers import RobertaTokenizer
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 
 from .code_window import CodeWindow
+from .hf_backbone import missing_backbone_message, resolve_backbone_path, resolve_tokenizer_path
 from trace.logging import setup_default_logger
 
 logger = setup_default_logger(__name__)
@@ -20,28 +21,37 @@ MODEL_ROLE = "generator"
 
 def load_model_generator(model_path: str, device: torch.device):
     config_class, model_class, tokenizer_class = MODEL_CLASSES["codet5"]
+    backbone = resolve_backbone_path("salesforce/codet5-base")
+    tokenizer_backbone = resolve_tokenizer_path("salesforce/codet5-base")
       
-    tokenizer = tokenizer_class.from_pretrained("salesforce/codet5-base")
-    new_special_tokens = ["<inter-mask>",
-                          "<code_window>", "</code_window>", 
-                          "<prompt>", "</prompt>", 
-                          "<prior_edits>", "</prior_edits>",
-                          "<edit>", "</edit>",
-                          "<keep>", "<replace>", "<delete>",
-                          "<null>", "<insert>", "<block-split>",
-                          "<replace-by>", "</replace-by>",
-                          "<feedback>", "</feedback>"]
-    tokenizer.add_tokens(new_special_tokens, special_tokens=True)
-    
-    config = config_class.from_pretrained("salesforce/codet5-base")
-    config.vocab_size = len(tokenizer)
-    new_encoder_embedding = nn.Embedding(config.vocab_size, config.d_model)
+    try:
+        tokenizer = tokenizer_class.from_pretrained(
+            tokenizer_backbone,
+            local_files_only=tokenizer_backbone != "salesforce/codet5-base",
+        )
+        new_special_tokens = ["<inter-mask>",
+                              "<code_window>", "</code_window>", 
+                              "<prompt>", "</prompt>", 
+                              "<prior_edits>", "</prior_edits>",
+                              "<edit>", "</edit>",
+                              "<keep>", "<replace>", "<delete>",
+                              "<null>", "<insert>", "<block-split>",
+                              "<replace-by>", "</replace-by>",
+                              "<feedback>", "</feedback>"]
+        tokenizer.add_tokens(new_special_tokens, special_tokens=True)
+        
+        config = config_class.from_pretrained(backbone, local_files_only=backbone != "salesforce/codet5-base")
+        config.vocab_size = len(tokenizer)
+        new_encoder_embedding = nn.Embedding(config.vocab_size, config.d_model)
 
-    model = model_class.from_pretrained("salesforce/codet5-base")
+        model = model_class.from_pretrained(backbone, local_files_only=backbone != "salesforce/codet5-base")
+    except Exception as err:
+        raise RuntimeError(missing_backbone_message("salesforce/codet5-base")) from err
+
     model.encoder.embed_tokens = new_encoder_embedding
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     # below type cannot be correctly parsed by pyright
-    model.to(device)     # type: ignore
+    model.to(device).float()     # type: ignore # 确保所有权重都是float32类型
 
     return model, tokenizer
 
@@ -207,4 +217,3 @@ def formalize_generator_input(sliding_window: list[str], inline_labels: list[str
     data = TensorDataset(source_ids)
     return data, source_seq
     
-

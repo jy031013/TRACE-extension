@@ -193,6 +193,8 @@ def get_device():
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
-        return torch.device("mps")
+        # 暂时禁用MPS以避免数据类型不匹配问题
+        # return torch.device("mps")
+        return torch.device("cpu")
     else:
         return torch.device("cpu")

@@ -1,4 +1,5 @@
 import os
+import errno
 import json
 import logging
 import configparser
@@ -79,11 +80,21 @@ if __name__ == '__main__':
     config.read(f'{os.path.dirname(__file__)}/server.ini')
 
     port = int(config['DEFAULT']['ListenPort'])
+    max_port_tries = 20
+    tries = 0
     while True:
         try:
-            serve(app, host=config['DEFAULT']['ListenHost'], port=port, threads=4)
+            serve(app, host=config['DEFAULT']['ListenHost'], port=port, threads=1)
             logger.info("Server closed.")
             break
-        except OSError:
+        except OSError as err:
+            if err.errno != errno.EADDRINUSE:
+                raise
             port += 1
+            tries += 1
+            if tries >= max_port_tries:
+                raise RuntimeError(
+                    f"Unable to find a free port after trying {max_port_tries} ports "
+                    f"starting from {config['DEFAULT']['ListenPort']}."
+                ) from err
             logger.info(f"Port {port-1} is in use, trying port {port}")

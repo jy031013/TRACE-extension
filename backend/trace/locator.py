@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from transformers import RobertaTokenizer, T5Config, T5ForConditionalGeneration
 
 from .code_window import CodeWindow
+from .hf_backbone import missing_backbone_message, resolve_backbone_path, resolve_tokenizer_path
 from trace.logging import setup_default_logger
 
 logger = setup_default_logger(__name__)
@@ -50,7 +51,7 @@ class Locator(nn.Module):
     def _tie_or_clone_weights(self, first_module, second_module):
         """ Tie or clone module weights depending of weither we are using TorchScript or not
         """
-        if self.config.torchscript:
+        if getattr(self.config, "torchscript", False):
             first_module.weight = nn.Parameter(second_module.weight.clone())
         else:
             first_module.weight = second_module.weight
@@ -171,9 +172,17 @@ def formalize_locator_input(sliding_window: dict, prompt: str,
 
 def load_model_locator(model_path,device):
     config_class, model_class, tokenizer_class = T5Config, T5ForConditionalGeneration, RobertaTokenizer
-    locator_config = config_class.from_pretrained('salesforce/codet5-large')
-    locator_tokenizer = tokenizer_class.from_pretrained('salesforce/codet5-large')
-    encoder = model_class.from_pretrained('salesforce/codet5-large').encoder
+    backbone = resolve_backbone_path("salesforce/codet5-large")
+    tokenizer_backbone = resolve_tokenizer_path("salesforce/codet5-large")
+    try:
+        locator_config = config_class.from_pretrained(backbone, local_files_only=backbone != "salesforce/codet5-large")
+        locator_tokenizer = tokenizer_class.from_pretrained(
+            tokenizer_backbone,
+            local_files_only=tokenizer_backbone != "salesforce/codet5-large",
+        )
+        encoder = model_class.from_pretrained(backbone, local_files_only=backbone != "salesforce/codet5-large").encoder
+    except Exception as err:
+        raise RuntimeError(missing_backbone_message("salesforce/codet5-large")) from err
 
     # add special tokens
     new_special_tokens = ["<inter-mask>",
@@ -198,7 +207,7 @@ def load_model_locator(model_path,device):
                     insert_token_id=locator_tokenizer.convert_tokens_to_ids("<insert>"),
                     block_split_token_id=locator_tokenizer.convert_tokens_to_ids("<block-split>"))
     locator.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    locator.to(device)
+    locator.to(device).float()  # 确保所有权重都是float32类型
     return locator, locator_tokenizer
 
 def predict_sliding_windows(prev_edit_hunks, locator, locator_tokenizer, commit_msg, device, sliding_windows):

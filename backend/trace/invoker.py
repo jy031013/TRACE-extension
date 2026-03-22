@@ -7,6 +7,7 @@ import pandas as pd
 
 pd.set_option('display.float_format', '{:.4f}'.format)
 
+from .hf_backbone import missing_backbone_message, resolve_backbone_path
 from .rich_semantic import finer_grain_window
 from trace.logging import setup_default_logger
 
@@ -43,13 +44,18 @@ class Invoker(nn.Module):
          
 def load_model_invoker(invoker_file, device):
     MODEL_CLASSES = {'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer)}
+    backbone = resolve_backbone_path("microsoft/codebert-base")
     
     config_class, model_class, tokenizer_class = MODEL_CLASSES["roberta"]
-    config = config_class.from_pretrained("microsoft/codebert-base")
-    tokenizer = tokenizer_class.from_pretrained("microsoft/codebert-base")
+    try:
+        config = config_class.from_pretrained(backbone, local_files_only=backbone != "microsoft/codebert-base")
+        tokenizer = tokenizer_class.from_pretrained(backbone, local_files_only=backbone != "microsoft/codebert-base")
     
-    # build expert model
-    encoder = model_class.from_pretrained("microsoft/codebert-base")
+        # build expert model
+        encoder = model_class.from_pretrained(backbone, local_files_only=backbone != "microsoft/codebert-base")
+    except Exception as err:
+        raise RuntimeError(missing_backbone_message("microsoft/codebert-base")) from err
+
     # add special tokens
     new_special_tokens = ["<last_edit>", "</last_edit>",
                           "<before>", "</before>",
@@ -64,7 +70,7 @@ def load_model_invoker(invoker_file, device):
     invoker = Invoker(encoder, config)
     
     invoker.load_state_dict(torch.load(invoker_file, map_location=device, weights_only=True))
-    invoker.to(device)
+    invoker.to(device).float()  # 确保所有权重都是float32类型
     return invoker, tokenizer
 
 def ask_invoker(prior_edit_hunks, invoker, invoker_tokenizer, prior_edit_type, gate_info, device, lang):
