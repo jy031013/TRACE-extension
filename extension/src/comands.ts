@@ -5,6 +5,7 @@ import { statisticsCollector } from "./statistics";
 import { FileEdits } from "./utils/base-types";
 import { limitNum } from "./utils/utils";
 import { createVirtualModifiedFileUri } from "./views/compare-view";
+import { ModItem, globalLocationViewManager } from "./views/location-tree-view";
 // import { addUserStatItem } from "./global-context";
 
 export function registerBasicCommands() {
@@ -55,7 +56,23 @@ export function registerBasicCommands() {
 			await vscode.window.showInformationMessage("Previous edits cleared!");
 			// addUserStatItem("clearPrevEdits");
 		}),
-		vscode.commands.registerCommand('trace.openRefactorPreview', openRefactorPreview)
+		vscode.commands.registerCommand('trace.openRefactorPreview', openRefactorPreview),
+		vscode.commands.registerCommand('trace.pinLocation', async (item: ModItem) => {
+			statisticsCollector.addLog("command", "trace.pinLocation");
+			
+			if (item && !item.isPinned) {
+				globalLocationViewManager.provider.pinItem(item);
+				await vscode.window.showInformationMessage(`📌 Location at Line ${item.fromLine + 1} has been pinned!`);
+			}
+		}),
+		vscode.commands.registerCommand('trace.unpinLocation', async (item: ModItem) => {
+			statisticsCollector.addLog("command", "trace.unpinLocation");
+			
+			if (item && item.isPinned) {
+				globalLocationViewManager.provider.unpinItem(item);
+				await vscode.window.showInformationMessage(`⚪ Location at Line ${item.fromLine + 1} has been unpinned!`);
+			}
+		})
 	);
 }
 

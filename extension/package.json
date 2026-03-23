@@ -106,6 +106,16 @@
         "title": "Clear Edit Memory",
         "command": "trace.clearPrevEdits",
         "icon": "$(history)"
+      },
+      {
+        "title": "Pin Location",
+        "command": "trace.pinLocation",
+        "icon": "$(circle-outline)"
+      },
+      {
+        "title": "Unpin Location", 
+        "command": "trace.unpinLocation",
+        "icon": "$(pinned)"
       }
     ],
     "menus": {
@@ -173,6 +183,18 @@
           "command": "trace.clearLocations",
           "when": "view == editLocations",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "trace.pinLocation",
+          "when": "view == editLocations && viewItem == mod",
+          "group": "inline@1"
+        },
+        {
+          "command": "trace.unpinLocation", 
+          "when": "view == editLocations && viewItem == pinnedMod",
+          "group": "inline@1"
         }
       ]
     },

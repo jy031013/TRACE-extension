@@ -13,6 +13,7 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
     onDidChangeLocationNumber: vscode.Event<number> = this._onDidChangeLocationNumber.event;
 
     modTree: FileItem[];
+    pinnedItems: ModItem[];
 
     constructor() {
         this._onDidChangeTreeData = new vscode.EventEmitter();
@@ -20,6 +21,28 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
         this._onDidChangeLocationNumber = new vscode.EventEmitter();
         this.onDidChangeLocationNumber = this._onDidChangeLocationNumber.event;
         this.modTree = [];
+        this.pinnedItems = [];
+    }
+
+    pinItem(item: ModItem) {
+        if (!item.isPinned) {
+            item.isPinned = true;
+            item.contextValue = 'pinnedMod';
+            this.pinnedItems.push(item);
+            this.notifyChangeOfTree();
+        }
+    }
+
+    unpinItem(item: ModItem) {
+        if (item.isPinned) {
+            item.isPinned = false;
+            item.contextValue = 'mod';
+            const index = this.pinnedItems.indexOf(item);
+            if (index > -1) {
+                this.pinnedItems.splice(index, 1);
+            }
+            this.notifyChangeOfTree();
+        }
     }
 
     empty() {
@@ -28,7 +51,8 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
     }
 
     reloadData(modList: LocatorLocation[]) {
-        this.modTree = this.buildModTree(modList);
+        const newModTree = this.buildModTree(modList);
+        this.modTree = this.mergePinnedItemsWithNewData(newModTree);
         this.notifyChangeOfTree();
     }
 
@@ -120,6 +144,73 @@ export class LocationTreeDataProvider implements vscode.TreeDataProvider<FileIte
         }
 
         return modTree;
+    }
+
+    private mergePinnedItemsWithNewData(newModTree: FileItem[]): FileItem[] {
+        if (this.pinnedItems.length === 0) {
+            return newModTree;
+        }
+
+        // Group pinned items by file path
+        const pinnedByFilePath = new Map<string, ModItem[]>();
+        for (const pinnedItem of this.pinnedItems) {
+            const filePath = pinnedItem.fileItem.filePath;
+            if (!pinnedByFilePath.has(filePath)) {
+                pinnedByFilePath.set(filePath, []);
+            }
+            pinnedByFilePath.get(filePath)!.push(pinnedItem);
+        }
+
+        const mergedTree: FileItem[] = [];
+        const processedFiles = new Set<string>();
+
+        // Process new files and merge with pinned items
+        for (const newFileItem of newModTree) {
+            const filePath = newFileItem.filePath;
+            const pinnedItemsForFile = pinnedByFilePath.get(filePath) || [];
+            
+            // Merge new and pinned items for this file
+            const allItems = [...pinnedItemsForFile, ...newFileItem.mods];
+            
+            // Remove duplicates based on line number (keep pinned items priority)
+            const uniqueItems = new Map<number, ModItem>();
+            for (const item of allItems) {
+                if (!uniqueItems.has(item.fromLine) || item.isPinned) {
+                    uniqueItems.set(item.fromLine, item);
+                }
+            }
+
+            // Sort by line number
+            const sortedItems = Array.from(uniqueItems.values()).sort((a, b) => a.fromLine - b.fromLine);
+            
+            // Update file item with merged mods
+            newFileItem.mods = sortedItems;
+            mergedTree.push(newFileItem);
+            processedFiles.add(filePath);
+        }
+
+        // Add files that only have pinned items (no new predictions)
+        for (const [filePath, pinnedItems] of pinnedByFilePath) {
+            if (!processedFiles.has(filePath)) {
+                const fileName = pinnedItems[0].fileItem.fileName;
+                const fileItem = new FileItem(
+                    fileName,
+                    vscode.TreeItemCollapsibleState.Expanded,
+                    fileName,
+                    filePath,
+                    pinnedItems.sort((a, b) => a.fromLine - b.fromLine)
+                );
+                
+                // Update fileItem reference in pinned items
+                for (const item of pinnedItems) {
+                    item.fileItem = fileItem;
+                }
+                
+                mergedTree.push(fileItem);
+            }
+        }
+
+        return mergedTree;
     }
 
     buildRefactorTree(editList: FileEdits[]) {
@@ -239,13 +330,14 @@ class FileItem extends vscode.TreeItem {
     contextValue = 'file';
 }
 
-class ModItem extends vscode.TreeItem {
+export class ModItem extends vscode.TreeItem {
     fileItem: FileItem;
     fromLine: number;
     toLine: number;
     lineContent: string;
     editType: EditType;
     text: string;
+    isPinned: boolean;
 
     constructor(
         label: string,
@@ -256,7 +348,8 @@ class ModItem extends vscode.TreeItem {
         lineContent: string,
         editType: EditType,
         isRefactor: boolean = true,
-        refactorEdits: UniqueRefactorEditsSet | undefined = undefined
+        refactorEdits: UniqueRefactorEditsSet | undefined = undefined,
+        isPinned: boolean = false
     ) {
         super(label, collapsibleState);
         this.collapsibleState = collapsibleState;
@@ -266,9 +359,14 @@ class ModItem extends vscode.TreeItem {
         this.lineContent = lineContent;
         this.editType = editType;
         this.text = `    ${this.lineContent.trim()}`;
+        this.isPinned = isPinned;
 
-        this.tooltip = `Line ${this.fromLine + 1}`; // match real line numbers in the gutter
-        this.description = this.text;
+        this.tooltip = `Line ${this.fromLine + 1} - Click to open file, right-click to ${this.isPinned ? 'unpin' : 'pin'}`; // match real line numbers in the gutter
+        
+        // Display pin status icon in description for constant visibility
+        const pinIcon = this.isPinned ? '📌' : '⚪';
+        const spacing = '        '; // Spacing to push icon to the right
+        this.description = `${this.text}${spacing}${pinIcon}`;
 
         if (isRefactor && refactorEdits) {
             this.command = {
@@ -277,6 +375,7 @@ class ModItem extends vscode.TreeItem {
                 arguments: [refactorEdits, fromLine]
             };
         } else {
+            // Restore original behavior: click to open file and generate edits
             this.command = {
                 command: 'trace.openFileAndGenerateEdits',
                 title: '',
@@ -288,14 +387,15 @@ class ModItem extends vscode.TreeItem {
             };
         }
         
+        // Always use edit type icons on the left, pin status shown on the right
         // FIXME there should exist a more elegant way to get assets
         const iconFile = path.join(__filename, '..', '..', '..', 'assets', this.getIconFileName());
-
         this.iconPath = {
             light: vscode.Uri.file(iconFile),
             dark: vscode.Uri.file(iconFile),
         };
         this.label = this.getLabel();
+        this.contextValue = this.isPinned ? 'pinnedMod' : 'mod';
     }
 
     getIconFileName() {
@@ -320,8 +420,6 @@ class ModItem extends vscode.TreeItem {
         // }
         return `Line ${this.fromLine + 1}`;
     }
-
-    contextValue = 'mod';
 }
 
 class EditLocationViewManager extends DisposableComponent {
